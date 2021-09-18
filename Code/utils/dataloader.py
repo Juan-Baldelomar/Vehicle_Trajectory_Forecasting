@@ -14,75 +14,87 @@ from nuscenes.map_expansion.map_api import NuScenesMap
 from nuscenes.map_expansion import arcline_path_utils
 from nuscenes.map_expansion.bitmap import BitMap
 
-'''
-    Loader CLASS
-    
-    * Loader Parent Class: This class should be implemented by any specific loader of the desired dataset.
-    * self.dataset should be a dictionary with at least the following attributes:
-        { 
-            <agent_key> : { 
-                abs_pos: [[x_1, y_1], ... , [x_n, y_n]],
-            } 
-        }
-    
-      abs_pos contains the trajectory encoded as list of positions in the world coordinate system
-    
-    * self.dataset is obtained when the implementarion of load_data() is called
-    * super().__init__ should be called from the child constructor when all the self.<attributes> needed in the implementation
-      of load_data() are already specified. 
-'''
-
 
 class Loader:
+    """
+        Loader CLASS
+
+        * Loader Parent Class: This class should be implemented by any specific loader of the desired dataset.
+        * self.dataset should be a dictionary with at least the following attributes:
+            {
+                <agent_key> : {
+                    abs_pos: [[x_1, y_1], ... , [x_n, y_n]],
+                }
+            }
+
+          abs_pos contains the trajectory encoded as list of positions in the world coordinate system
+
+        * self.dataset is obtained when the implementarion of load_data() is called
+        * super().__init__ should be called from the child constructor when all the self.<attributes> needed in the implementation
+          of load_data() are already specified.
+    """
 
     def __init__(self, DATAROOT):
         self.DATAROOT = DATAROOT
         self.mode = 'single'
         self.dataset: dict = self.load_data()           # calls for specific implemented class load_data function
 
-    # private method, should be called in the constructor
+    # method to load data and should be called in the constructor
     def load_data(self):
         raise NotImplementedError
 
+    # check that the data was load propperly and it fulfills the desired characteristics
     def check_consistency(self):
         raise NotImplementedError
 
+    # load custom data as tensor. This functions deals with the specific details of each dataset to get the data
+    # in the desired format as a tensor. It is supposed to deal with specific context attributes of each dataset
     def get_custom_data_as_tensor(self):
         raise NotImplementedError
 
-    '''
-        function to get the trajectories from all the agents in the dataset as a tensor
-        @:param size indicates the minimum size of points in the trajectory
-        @:param mode indicates how to treat trajectories that are bigger than the minimum size. The following values are supported
-        
-            - 'single': truncates the trajectory to the point in the <size> position, ie. agent_trajectory[0 : size]
-            
-            - 'overlap': builds as many trajectories as it can with the extra size. For example if you have a minimum size = 20
-                         and the trajectory has a lenght of 30 points, it builds two trajectories of the form [0:20], [10:30]
-                         
-            - 'fit': it builds as many trajectories with unique points for each one that match the minimum size. For example if you 
-                     have a minimum size = 20 and you have a trajectory of 40 points, then it gets two trajectories of the form [0:20], [20:40].
-                     If you have a trajectory of 30 points, then it returns a single trajectory of the form [0:20]. 
-        
-        * To be able to use the data as a tensor all trajectories must keep the same size,
-          so trajectories that are longer in points will be truncated from position 0 to positon <size>
-    '''
-
     def get_trajectories_as_tensor(self, size=20, mode='single') -> np.array:
+        """
+                function to get the trajectories from all the agents in the dataset as a tensor
+                @:param size indicates the minimum size of points in the trajectory
+                @:param mode indicates how to treat trajectories that are bigger than the minimum size. The following values are supported
+                @:return numpy array with the filtered trajectories
+
+                    - 'single': truncates the trajectory to the point in the <size> position, ie. agent_trajectory[0 : size]
+
+                    - 'overlap': builds as many trajectories as it can with the extra size. For example if you have a minimum size = 20
+                                 and the trajectory has a lenght of 30 points, it builds two trajectories of the form [0:20], [10:30]
+
+                    - 'fit': it builds as many trajectories with unique points for each one that match the minimum size. For example if you
+                             have a minimum size = 20 and you have a trajectory of 40 points, then it gets two trajectories of the form [0:20], [20:40].
+                             If you have a trajectory of 30 points, then it returns a single trajectory of the form [0:20].
+
+                * To be able to use the data as a tensor all trajectories must keep the same size,
+                  so trajectories that are longer in points will be truncated from position 0 to positon <size>
+        """
+
+        # set mode so modes match with the get_custom_data_as_tensor function
         self.mode = mode
 
-        trajectories = [agent['abs_pos'] for agent in self.dataset.values()]
+        # list to store filtered trajectories
         filtered_trajectories = []
+
+        # get trajectories in the world coodinates
+        trajectories = [agent['abs_pos'] for agent in self.dataset.values()]
+
+        # traverse trajectories
         for agent_traj in trajectories:
 
+            # filter trajectories and store the ones that have a greater or equal lenght than minimum size.
             if len(agent_traj) >= size:
                 if mode == 'overlap':
                     # get number of trajectories
                     n_traj = int(np.ceil(len(agent_traj)/size))
 
+                    # append trajectories
                     for k in range(1, n_traj):
                         filtered_trajectories.append(agent_traj[(k-1) * size: k * size])
 
+                    # append last trajectory
                     start = len(agent_traj) - size
                     filtered_trajectories.append(agent_traj[start:])
 
@@ -90,6 +102,7 @@ class Loader:
                     # get number of trajectories
                     n_traj = len(agent_traj)//size
 
+                    # append trajectories
                     for k in range(1, n_traj + 1):
                         filtered_trajectories.append(agent_traj[(k - 1) * size: k * size])
 
@@ -99,31 +112,35 @@ class Loader:
         return np.array(filtered_trajectories)
 
 
-'''
-    NuscenesLoader CLASS
-
-    * This class is the specific implementation for the loader of the nuscenes dataset
-    * self.dataset is a dictionary with the following attributes:
-        { 
-            <agent_key>:    {
-                                abs_pos: [],                # list of coordinates in the world frame (2d)
-                                rel_pos: [],                # list of coordinates in the vehicle with the camera frame (2d)
-                                rotation: [],               # list of orientation of the annotation box parametrized as a quaternion
-                                speed: [],                  # list of angular speed (scalar, defined from the second annotation of the instance
-                                                              not the first one)
-                                accel: [],                  # list of acceleration (scalar, defined from the third annotation of the instance
-                                heading_rate: [],
-                                context: [],                # list of context_ids, those ids point to anothe dictionary with relevan information
-                                                              of the context
-                                map: None
-                            }
-        }
-
-    * self.dataset is obtained when the implementarion of load_data() is called
-'''
-
-
 class NuscenesLoader(Loader):
+    """
+        NuscenesLoader CLASS
+
+        * This class is the specific implementation for the loader of the nuscenes dataset
+        * self.dataset is a dictionary with the following attributes:
+            {
+                <agent_key>:    {
+                                    abs_pos: [],                # list of coordinates in the world frame (2d)
+                                    rel_pos: [],                # list of coordinates in the vehicle with the camera frame (2d)
+                                    rotation: [],               # list of orientation of the annotation box parametrized as a quaternion
+                                    speed: [],                  # list of angular speed (scalar, defined from the second annotation of the instance
+                                                                  not the first one)
+                                    accel: [],                  # list of acceleration (scalar, defined from the third annotation of the instance
+                                    heading_rate: [],
+                                    context: [],                # list of context_ids, those ids point to anothe dictionary with relevan information
+                                                                  of the context
+                                    map: None
+                                }
+            }
+
+        * self.dataset is obtained when the implementarion of load_data() is called
+
+        * IMPORTANT:
+            1. a SCENE is made by several moments in time or time steps. This time steps are called SAMPLES.
+            2. It is relevant to know that the information of an agent (INSTANCE table) in time is stored in the SAMPLE_ANNOTATION table.
+               In a database context this would be the 'MASTER' table. An agent(instance table) has several recordings in time (sample table)
+               and a sample has several agents in it, so a master table is needed, therefore the sample_annotation table fullfills this.
+    """
 
     def __init__(self, DATAROOT='/data/sets/nuscenes', version='v1.0-mini', data_name='mini_train', verbose=True):
         # specify attributes needed in load_data() implementation
@@ -135,15 +152,22 @@ class NuscenesLoader(Loader):
         # note that the parent constructor is called after all the attributes needed in the load_data() function are already set.
         super(NuscenesLoader, self).__init__(DATAROOT)
 
+    # set verbose mode which determines if it should print the relevant information while processing the data
     def setVerbose(self, verbose: bool):
         self.verbose = verbose
 
-    def insert_context(self, instance_token: str, sample_token: str):
+    # insert neighbors to the context dictionary
+    def insert_context_neighbor(self, instance_token: str, sample_token: str):
         if self.context.get(sample_token) is None:
-            self.context[sample_token] = {'neighbors': []}
+            # build entry in the dictionary
+            self.context[sample_token] = {'neighbors':      [],
+                                          'pedestrians':    [],
+                                          'obstacles':      [],
+                                          'map':            None}
 
         self.context[sample_token]['neighbors'].append(instance_token)
 
+    # get attributes of and agent in a specific moment in time (sample)
     def __get_attributes(self, sample_annotation, helper: PredictHelper) -> tuple:
         sample_token = sample_annotation['sample_token']
         instance_token = sample_annotation['instance_token']
@@ -155,15 +179,20 @@ class NuscenesLoader(Loader):
         heading_rate = helper.get_heading_change_rate_for_agent(instance_token, sample_token)
         return [abs_pos[0], abs_pos[1]], rotation, speed, accel, heading_rate
 
+    # get all the relative positions of an agent in the scene (relative to the vehicle that has the camera recording)
     def __get_rel_pos(self, instance_token: str, nuscenes, head_sample: dict, helper: PredictHelper):
+
+        # to get the first relative position you need to move to the next sample to see the past (this is due to how the data is stored)
         next_sample = nuscenes.get('sample', head_sample['next'])
 
+        # see the past to get the first relative position
         first_pos = helper.get_past_for_agent(instance_token, next_sample['token'], 0.5, True)
+
+        # see the future to get all the other relative positions
         future_pos = helper.get_future_for_agent(instance_token, head_sample['token'], 20, True)
         return np.append(first_pos, future_pos, axis=0)
 
     def load_data(self) -> dict:
-
         # load dataset and PredictHelper to make querys to the dataset
         nuscenes = NuScenes(self.version, dataroot=self.DATAROOT)
         helper = PredictHelper(nuscenes)
@@ -188,14 +217,13 @@ class NuscenesLoader(Loader):
                     print('new agent: ', instance_token)
 
                 # agent does not exist, create new agent
-                agents[instance_token] = {'abs_pos': [],                # list of coordinates in the world frame (2d) (sequence)
-                                          'rel_pos': [],                # list of coordinates in the agent frame (2d) (sequence)
-                                          'rotation': [],               # list of rotation parametrized as a quaternion
-                                          'speed': [],                  # list of scalar
-                                          'accel': [],                  # list scalar
-                                          'heading_rate': [],           # list scalar
-                                          'context': [],                # list of ids
-                                          'map': None
+                agents[instance_token] = {'abs_pos':        [],                # list of coordinates in the world frame (2d) (sequence)
+                                          'rel_pos':        [],                # list of coordinates in the agent frame (2d) (sequence)
+                                          'rotation':       [],               # list of rotation parametrized as a quaternion
+                                          'speed':          [],                  # list of scalar
+                                          'accel':          [],                  # list scalar
+                                          'heading_rate':   [],           # list scalar
+                                          'context':        [],                # list of ids
                                           }
                 # get head_annotation
                 first_annotation_token: str = instance['first_annotation_token']
@@ -211,7 +239,9 @@ class NuscenesLoader(Loader):
                 # traverse forward sample_annotations from first_annotation
                 while tmp_annotation is not None:
                     sample_token = tmp_annotation['sample_token']
-                    self.insert_context(instance_token, sample_token)
+
+                    # insert neighbors to corresponding context dictionary
+                    self.insert_context_neighbor(instance_token, sample_token)
 
                     # GET abs_pos: [], rotation: [], speed: float , accel: float, heading_rate: float
                     attributes: tuple = self.__get_attributes(tmp_annotation, helper)
@@ -237,21 +267,28 @@ class NuscenesLoader(Loader):
 
         return agents
 
-    def check_consistency(self):
-        keys = list(self.dataset.keys())
-        flag = True
-        for i in range(len(keys)):
-            size_abs = len(self.dataset[keys[i]]['abs_pos'])
-            size_rel = len(self.dataset[keys[i]]['rel_pos'])
-            size_speed = len(self.dataset[keys[i]]['speed'])
-            size_accel = len(self.dataset[keys[i]]['accel'])
-            size_context = len(self.dataset[keys[i]]['context'])
-            size_rotation = len(self.dataset[keys[i]]['rotation'])
-            size_heading_rate = len(self.dataset[keys[i]]['heading_rate'])
+    def get_context_information(self):
 
-            if size_abs + size_rel + size_speed + size_accel + size_context + size_rotation + size_heading_rate != 7 * size_abs:
+    def check_consistency(self):
+        # set flag by default to true
+        flag = True
+
+        keys = self.dataset.keys()
+        # traverse agents
+        for key in keys:
+            agent = self.dataset[key]
+            size_abs = len(agent['abs_pos'])
+            size_rel = len(agent['rel_pos'])
+            size_speed = len(agent['speed'])
+            size_accel = len(agent['accel'])
+            size_context = len(agent['context'])
+            size_rotation = len(agent['rotation'])
+            size_heading_rate = len(agent['heading_rate'])
+
+            #  verify all the fields of the agent have the same size (same number of data for each moment in time)
+            if not (size_abs == size_rel == size_speed == size_accel == size_context == size_rotation == size_heading_rate):
                 flag = False
-                print('[WARN]: no consistency with obs ->', keys[i])
+                print('[WARN]: no consistency with obs ->', key)
 
         return flag
 
@@ -265,6 +302,7 @@ print(nuscenes_loader.check_consistency())
 trajectories = nuscenes_loader.get_trajectories_as_tensor(mode='overlap')
 trajectories.shape
 
+print(trajectories[0])
 
 # ------------------------------------------------------- PRUEBAS -------------------------------------------------------
 
