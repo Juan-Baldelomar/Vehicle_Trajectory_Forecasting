@@ -1,8 +1,10 @@
+import os.path
 
 import matplotlib.pyplot as plt
 import numpy
 import numpy as np
 import cv2 as cv
+import pickle
 
 # nuscenes libraries
 from nuscenes.nuscenes import NuScenes
@@ -22,9 +24,11 @@ class Loader:
         * Loader Parent Class: This class should be implemented by any specific loader of the desired dataset.
         * self.dataset should be a dictionary with at least the following attributes:
             {
-                <agent_key> : {
-                    abs_pos: [[x_1, y_1], ... , [x_n, y_n]],
-                }
+               'agents': {
+                            <agent_key>: {
+                                abs_pos: [[x_1, y_1], ... , [x_n, y_n]],
+                            }
+                         }
             }
 
           abs_pos contains the trajectory encoded as list of positions in the world coordinate system
@@ -37,27 +41,46 @@ class Loader:
     def __init__(self, DATAROOT):
         self.DATAROOT = DATAROOT
         self.mode = 'single'
-        self.dataset: dict = self.load_data()           # calls for specific implemented class load_data function
+        self.dataset: dict = {'agents': {}}
 
-    # method to load data and should be called in the constructor
     def load_data(self):
+        """ method to load data and should be called in the constructor"""
         raise NotImplementedError
 
-    # check that the data was load propperly and it fulfills the desired characteristics
     def check_consistency(self):
+        """check that the data was load propperly and it fulfills the desired characteristics"""
         raise NotImplementedError
 
-    # load custom data as tensor. This functions deals with the specific details of each dataset to get the data
-    # in the desired format as a tensor. It is supposed to deal with specific context attributes of each dataset
     def get_custom_data_as_tensor(self):
+        """ Load custom data as tensor. This functions deals with the specific details of each dataset to get the data
+            in the desired format as a tensor. It is supposed to deal with specific context attributes of each dataset
+        """
         raise NotImplementedError
+
+    # store processed data in pkl files
+    def save_pickle_data(self, filename):
+        file = open(filename, 'wb')
+        pickle.dump(self.dataset, file, pickle.HIGHEST_PROTOCOL)
+        file.close()
+        print("data stored succesfully to: ", filename)
+
+    # read processed data in pkl files
+    def load_pickle_data(self, filename):
+        try:
+            file = open(filename, 'rb')
+            self.dataset = pickle.load(file)
+            file.close()
+            return True
+
+        except FileNotFoundError:
+            print('file does not exist to read pickle data: ', filename)
+            return False
 
     def get_trajectories_as_tensor(self, size=20, mode='single') -> np.array:
         """
                 function to get the trajectories from all the agents in the dataset as a tensor
-                @:param size indicates the minimum size of points in the trajectory
-                @:param mode indicates how to treat trajectories that are bigger than the minimum size. The following values are supported
-                @:return numpy array with the filtered trajectories
+                :param size indicates the minimum size of points in the trajectory
+                :param mode indicates how to treat trajectories that are bigger than the minimum size. The following values are supported
 
                     - 'single': truncates the trajectory to the point in the <size> position, ie. agent_trajectory[0 : size]
 
@@ -67,6 +90,8 @@ class Loader:
                     - 'fit': it builds as many trajectories with unique points for each one that match the minimum size. For example if you
                              have a minimum size = 20 and you have a trajectory of 40 points, then it gets two trajectories of the form [0:20], [20:40].
                              If you have a trajectory of 30 points, then it returns a single trajectory of the form [0:20].
+
+                :return numpy array with the filtered trajectories
 
                 * To be able to use the data as a tensor all trajectories must keep the same size,
                   so trajectories that are longer in points will be truncated from position 0 to positon <size>
@@ -79,7 +104,7 @@ class Loader:
         filtered_trajectories = []
 
         # get trajectories in the world coodinates
-        trajectories = [agent['abs_pos'] for agent in self.dataset.values()]
+        trajectories = [agent['abs_pos'] for agent in self.dataset['agents'].values()]
 
         # traverse trajectories
         for agent_traj in trajectories:
@@ -129,7 +154,6 @@ class NuscenesLoader(Loader):
                                     heading_rate: [],
                                     context: [],                # list of context_ids, those ids point to anothe dictionary with relevan information
                                                                   of the context
-                                    map: None
                                 }
             }
 
@@ -142,15 +166,30 @@ class NuscenesLoader(Loader):
                and a sample has several agents in it, so a master table is needed, therefore the sample_annotation table fullfills this.
     """
 
-    def __init__(self, DATAROOT='/data/sets/nuscenes', version='v1.0-mini', data_name='mini_train', verbose=True):
-        # specify attributes needed in load_data() implementation
+    def __init__(self, DATAROOT='/data/sets/nuscenes', pickle=True, pickle_filename='/data/sets/nuscenes/pickle/nuscenes_data.pkl',
+                 version='v1.0-mini', data_name='mini_train', verbose=True):
+
+        # parent constructor
+        super(NuscenesLoader, self).__init__(DATAROOT)
+
+        # specify attributes
         self.version: str = version
         self.data_name: str = data_name
+        self.nuscenes = NuScenes(version, dataroot=DATAROOT)
+        self.helper = PredictHelper(self.nuscenes)
         self.verbose: bool = verbose
-        self.context: dict = {}
 
-        # note that the parent constructor is called after all the attributes needed in the load_data() function are already set.
-        super(NuscenesLoader, self).__init__(DATAROOT)
+        pickle_ok = os.path.isfile(pickle_filename)
+
+        if pickle and pickle_ok:
+            # its okay to read pickle files to load data
+            self.load_pickle_data(pickle_filename)
+
+        else:
+            # load data from scratch
+            self.dataset['context'] = {}
+            self.dataset['agents'] = self.load_data()
+            self.save_pickle_data(pickle_filename)
 
     # set verbose mode which determines if it should print the relevant information while processing the data
     def setVerbose(self, verbose: bool):
@@ -158,45 +197,48 @@ class NuscenesLoader(Loader):
 
     # insert neighbors to the context dictionary
     def insert_context_neighbor(self, instance_token: str, sample_token: str):
-        if self.context.get(sample_token) is None:
+        context: dict = self.dataset['context']
+        if context.get(sample_token) is None:
             # build entry in the dictionary
-            self.context[sample_token] = {'neighbors':      [],
-                                          'pedestrians':    [],
-                                          'obstacles':      [],
-                                          'map':            None}
+            context[sample_token] = {
+                                        'neighbors':      [],
+                                        'pedestrians':    [],
+                                        'obstacles':      [],
+                                        'map':            None
+                                    }
 
-        self.context[sample_token]['neighbors'].append(instance_token)
+        context[sample_token]['neighbors'].append(instance_token)
 
     # get attributes of and agent in a specific moment in time (sample)
-    def __get_attributes(self, sample_annotation, helper: PredictHelper) -> tuple:
+    def __get_attributes(self, sample_annotation) -> tuple:
+
+        # get tokens
         sample_token = sample_annotation['sample_token']
         instance_token = sample_annotation['instance_token']
 
+        # get attributes
         abs_pos = sample_annotation['translation']
         rotation = sample_annotation['rotation']
-        speed = helper.get_velocity_for_agent(instance_token, sample_token)
-        accel = helper.get_acceleration_for_agent(instance_token, sample_token)
-        heading_rate = helper.get_heading_change_rate_for_agent(instance_token, sample_token)
+        speed = self.helper.get_velocity_for_agent(instance_token, sample_token)
+        accel = self.helper.get_acceleration_for_agent(instance_token, sample_token)
+        heading_rate = self.helper.get_heading_change_rate_for_agent(instance_token, sample_token)
+
         return [abs_pos[0], abs_pos[1]], rotation, speed, accel, heading_rate
 
     # get all the relative positions of an agent in the scene (relative to the vehicle that has the camera recording)
-    def __get_rel_pos(self, instance_token: str, nuscenes, head_sample: dict, helper: PredictHelper):
+    def __get_rel_pos(self, instance_token: str, head_sample: dict):
 
         # to get the first relative position you need to move to the next sample to see the past (this is due to how the data is stored)
-        next_sample = nuscenes.get('sample', head_sample['next'])
+        next_sample = self.nuscenes.get('sample', head_sample['next'])
 
         # see the past to get the first relative position
-        first_pos = helper.get_past_for_agent(instance_token, next_sample['token'], 0.5, True)
+        first_pos = self.helper.get_past_for_agent(instance_token, next_sample['token'], 0.5, True)
 
         # see the future to get all the other relative positions
-        future_pos = helper.get_future_for_agent(instance_token, head_sample['token'], 20, True)
+        future_pos = self.helper.get_future_for_agent(instance_token, head_sample['token'], 20, True)
         return np.append(first_pos, future_pos, axis=0)
 
     def load_data(self) -> dict:
-        # load dataset and PredictHelper to make querys to the dataset
-        nuscenes = NuScenes(self.version, dataroot=self.DATAROOT)
-        helper = PredictHelper(nuscenes)
-
         # list of the form <instance_token>_<sample_token>
         mini_train: list = get_prediction_challenge_split(self.data_name, dataroot=self.DATAROOT)
 
@@ -209,7 +251,7 @@ class NuscenesLoader(Loader):
 
         # traverse all instances and samples
         for instance_token in instance_tokens:
-            instance = nuscenes.get('instance', instance_token)
+            instance = self.nuscenes.get('instance', instance_token)
 
             # verify if agent exists
             if agents.get(instance_token) is None:
@@ -219,21 +261,21 @@ class NuscenesLoader(Loader):
                 # agent does not exist, create new agent
                 agents[instance_token] = {'abs_pos':        [],                # list of coordinates in the world frame (2d) (sequence)
                                           'rel_pos':        [],                # list of coordinates in the agent frame (2d) (sequence)
-                                          'rotation':       [],               # list of rotation parametrized as a quaternion
-                                          'speed':          [],                  # list of scalar
-                                          'accel':          [],                  # list scalar
-                                          'heading_rate':   [],           # list scalar
+                                          'rotation':       [],                # list of rotation parametrized as a quaternion
+                                          'speed':          [],                # list of scalar
+                                          'accel':          [],                # list scalar
+                                          'heading_rate':   [],                # list scalar
                                           'context':        [],                # list of ids
                                           }
                 # get head_annotation
                 first_annotation_token: str = instance['first_annotation_token']
-                first_annotation: dict = nuscenes.get('sample_annotation', first_annotation_token)
+                first_annotation: dict = self.nuscenes.get('sample_annotation', first_annotation_token)
 
                 # tmp annotation to traverse them
                 tmp_annotation = first_annotation
 
                 # GET and SET all the relative positions (relative to the camera in the vehicle)
-                rel_pos: numpy.array = self.__get_rel_pos(instance_token, nuscenes, nuscenes.get('sample', first_annotation['sample_token']), helper)
+                rel_pos: numpy.array = self.__get_rel_pos(instance_token, self.nuscenes.get('sample', first_annotation['sample_token']))
                 agents[instance_token]['rel_pos'] = rel_pos
 
                 # traverse forward sample_annotations from first_annotation
@@ -244,7 +286,7 @@ class NuscenesLoader(Loader):
                     self.insert_context_neighbor(instance_token, sample_token)
 
                     # GET abs_pos: [], rotation: [], speed: float , accel: float, heading_rate: float
-                    attributes: tuple = self.__get_attributes(tmp_annotation, helper)
+                    attributes: tuple = self.__get_attributes(tmp_annotation)
 
                     # set attributes of agent
                     agents[instance_token]['context'].append(sample_token)
@@ -256,27 +298,33 @@ class NuscenesLoader(Loader):
 
                     # move to next sample_annotation if possible
                     try:
-                        tmp_annotation = nuscenes.get('sample_annotation', tmp_annotation['next'])
+                        tmp_annotation = self.nuscenes.get('sample_annotation', tmp_annotation['next'])
 
                     except KeyError:
                         tmp_annotation = None
 
                 # close while
-
             # close IF agent.get(instance_token) Block
 
         return agents
 
     def get_context_information(self):
+        dataset_context = self.dataset['context']
+        keys = dataset_context.keys()
+        for key in keys:
+            sample = self.nuscenes.get('sample', key)
+            context = dataset_context[key]
+
+            # get context information
 
     def check_consistency(self):
         # set flag by default to true
         flag = True
 
-        keys = self.dataset.keys()
+        keys = self.dataset['agents'].keys()
         # traverse agents
         for key in keys:
-            agent = self.dataset[key]
+            agent = self.dataset['agents'][key]
             size_abs = len(agent['abs_pos'])
             size_rel = len(agent['rel_pos'])
             size_speed = len(agent['speed'])
@@ -296,7 +344,7 @@ class NuscenesLoader(Loader):
         return None
 
 
-nuscenes_loader = NuscenesLoader(verbose=True)
+nuscenes_loader = NuscenesLoader()
 print(nuscenes_loader.check_consistency())
 
 trajectories = nuscenes_loader.get_trajectories_as_tensor(mode='overlap')
@@ -310,11 +358,10 @@ print(trajectories[0])
 # # This is the path where you stored your copy of the nuScenes dataset.
 # DATAROOT = '/data/sets/nuscenes'
 # nuscenes = NuScenes('v1.0-mini', dataroot=DATAROOT)
-# mini_train = get_prediction_challenge_split("mini_train", dataroot=DATAROOT)
-# print(mini_train[:5])
-#
-# # helper to query data
 # helper = PredictHelper(nuscenes)
+# mini_train = get_prediction_challenge_split("mini_train", dataroot=DATAROOT)
+# toks = [x.split('_') for x in mini_train]
+
 #
 # inst_sampl_tokens = np.array([cad.split('_') for cad in mini_train])
 #
@@ -372,4 +419,3 @@ print(trajectories[0])
 # sample_traffic_light_record
 #
 # obj =  nuscenes.get('map', '00590fed-3542-4c20-9927-f822134be5fc')
-
