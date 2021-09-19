@@ -144,7 +144,8 @@ class NuscenesLoader(Loader):
         * This class is the specific implementation for the loader of the nuscenes dataset
         * self.dataset is a dictionary with the following attributes:
             {
-                <agent_key>:    {
+               agents:{
+                    <agent_key>:{
                                     abs_pos: [],                # list of coordinates in the world frame (2d)
                                     rel_pos: [],                # list of coordinates in the vehicle with the camera frame (2d)
                                     rotation: [],               # list of orientation of the annotation box parametrized as a quaternion
@@ -155,6 +156,16 @@ class NuscenesLoader(Loader):
                                     context: [],                # list of context_ids, those ids point to anothe dictionary with relevan information
                                                                   of the context
                                 }
+                    }
+               context:{
+                    <context_key> (same as sample token) :
+                                {
+                                    neighbors: []               # list of instance neighbors that are vehicles in the sample
+                                    humans: []                  # list of pedestrians in the sample
+                                    objects: []                 # list of objects in the sample
+                                    map: None                   # semantic map of the sample
+                                }
+               }
             }
 
         * self.dataset is obtained when the implementarion of load_data() is called
@@ -189,6 +200,7 @@ class NuscenesLoader(Loader):
             # load data from scratch
             self.dataset['context'] = {}
             self.dataset['agents'] = self.load_data()
+            self.get_context_information()
             self.save_pickle_data(pickle_filename)
 
     # set verbose mode which determines if it should print the relevant information while processing the data
@@ -202,8 +214,8 @@ class NuscenesLoader(Loader):
             # build entry in the dictionary
             context[sample_token] = {
                                         'neighbors':      [],
-                                        'pedestrians':    [],
-                                        'obstacles':      [],
+                                        'humans':    [],
+                                        'objects':      [],
                                         'map':            None
                                     }
 
@@ -313,9 +325,17 @@ class NuscenesLoader(Loader):
         keys = dataset_context.keys()
         for key in keys:
             sample = self.nuscenes.get('sample', key)
-            context = dataset_context[key]
+            context: dict = dataset_context[key]
+            sample_annotation_tokens = sample['anns']
 
             # get context information
+            for ann_token in sample_annotation_tokens:
+                sample_annotation = self.nuscenes.get('sample_annotation', ann_token)
+                categories = sample_annotation['category_name'].split('.')
+                if categories[0] == 'human':
+                    context['humans'].append(sample_annotation['token'])
+                elif categories[0] == ('movable_object' or 'static_object'):
+                    context['objects'].append(sample_annotation['token'])
 
     def check_consistency(self):
         # set flag by default to true
@@ -344,7 +364,7 @@ class NuscenesLoader(Loader):
         return None
 
 
-nuscenes_loader = NuscenesLoader()
+nuscenes_loader = NuscenesLoader(pickle=True)
 print(nuscenes_loader.check_consistency())
 
 trajectories = nuscenes_loader.get_trajectories_as_tensor(mode='overlap')
@@ -352,6 +372,8 @@ trajectories.shape
 
 print(trajectories[0])
 
+
+#nuscenes_loader.nuscenes.render_annotation(sample_anns)
 # ------------------------------------------------------- PRUEBAS -------------------------------------------------------
 
 
