@@ -34,13 +34,12 @@ class Loader:
           abs_pos contains the trajectory encoded as list of positions in the world coordinate system
 
         * self.dataset is obtained when the implementarion of load_data() is called
-        * super().__init__ should be called from the child constructor when all the self.<attributes> needed in the implementation
-          of load_data() are already specified.
     """
 
     def __init__(self, DATAROOT):
         self.DATAROOT = DATAROOT
         self.mode = 'single'
+        self.size = 20
         self.dataset: dict = {'agents': {}}
 
     def load_data(self):
@@ -73,7 +72,7 @@ class Loader:
             return True
 
         except FileNotFoundError:
-            print('file does not exist to read pickle data: ', filename)
+            print('[WARN] file does not exist to read pickle data: ', filename)
             return False
 
     def get_trajectories_as_tensor(self, size=20, mode='single') -> np.array:
@@ -99,6 +98,7 @@ class Loader:
 
         # set mode so modes match with the get_custom_data_as_tensor function
         self.mode = mode
+        self.size = size
 
         # list to store filtered trajectories
         filtered_trajectories = []
@@ -321,6 +321,14 @@ class NuscenesLoader(Loader):
         return agents
 
     def get_context_information(self):
+        """
+            function to get the context information. We ought to rember that context in this dataset is obtained from the
+            SAMPLE_ANNOTATION table. By the moment we obtain the pedestrians and obstacles in a record of sample_annotation
+            (a record of an agent in time) and we store the SAMPLE_ANNOTATION TOKEN so we can then obtain any information that
+            is relevant to the model, like its position, its attributes, etc, by quering the database of this record.
+
+            :return: None
+        """
         dataset_context = self.dataset['context']
         keys = dataset_context.keys()
         for key in keys:
@@ -331,7 +339,11 @@ class NuscenesLoader(Loader):
             # get context information
             for ann_token in sample_annotation_tokens:
                 sample_annotation = self.nuscenes.get('sample_annotation', ann_token)
+
+                # get the instance category
                 categories = sample_annotation['category_name'].split('.')
+
+                # add the token to the corresponding list if necessary
                 if categories[0] == 'human':
                     context['humans'].append(sample_annotation['token'])
                 elif categories[0] == ('movable_object' or 'static_object'):
@@ -370,8 +382,12 @@ print(nuscenes_loader.check_consistency())
 trajectories = nuscenes_loader.get_trajectories_as_tensor(mode='overlap')
 trajectories.shape
 
-print(trajectories[0])
 
+# get tensorflow dataset
+import tensorflow as tf
+dataset = tf.data.Dataset.from_tensor_slices(trajectories)
+for i, x in enumerate(dataset):
+    print(i, " ", x)
 
 #nuscenes_loader.nuscenes.render_annotation(sample_anns)
 # ------------------------------------------------------- PRUEBAS -------------------------------------------------------
