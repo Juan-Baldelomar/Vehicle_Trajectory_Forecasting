@@ -190,7 +190,8 @@ class NuscenesLoader(Loader):
         self.helper = PredictHelper(self.nuscenes)
         self.verbose: bool = verbose
 
-        pickle_ok = os.path.isfile(pickle_filename)
+        # flag to indicate if data can be loaded from pickle files
+        pickle_ok: bool = os.path.isfile(pickle_filename)
 
         if pickle and pickle_ok:
             # its okay to read pickle files to load data
@@ -213,10 +214,10 @@ class NuscenesLoader(Loader):
         if context.get(sample_token) is None:
             # build entry in the dictionary
             context[sample_token] = {
-                                        'neighbors':      [],
-                                        'humans':    [],
-                                        'objects':      [],
-                                        'map':            None
+                                        'neighbors':        [],
+                                        'humans':           [],
+                                        'objects':          [],
+                                        'map':              None
                                     }
 
         context[sample_token]['neighbors'].append(instance_token)
@@ -389,7 +390,6 @@ dataset = tf.data.Dataset.from_tensor_slices(trajectories)
 for i, x in enumerate(dataset):
     print(i, " ", x)
 
-#nuscenes_loader.nuscenes.render_annotation(sample_anns)
 # ------------------------------------------------------- PRUEBAS -------------------------------------------------------
 
 
@@ -400,59 +400,10 @@ for i, x in enumerate(dataset):
 # mini_train = get_prediction_challenge_split("mini_train", dataroot=DATAROOT)
 # toks = [x.split('_') for x in mini_train]
 
-#
-# inst_sampl_tokens = np.array([cad.split('_') for cad in mini_train])
-#
-#
-#
-# # get tokens
-# instance_token = inst_sampl_tokens[:, 0]
-# sample_token = inst_sampl_tokens[:, 1]
-#
-#
-# prev_change_token = ''
-# count = 0
-# for i in range(742):
-#     if prev_change_token != instance_token[i]:
-#         print(i, ": ", instance_token[i], " ", sample_token[i])
-#         sample = nuscenes.get('sample', sample_token[i])
-#         prev_sample_token = sample['prev']
-#         prev_sample = nuscenes.get('sample', prev_sample_token)
-#         annot = helper.get_sample_annotation(instance_token[i], prev_sample_token)
-#         past = helper.get_past_for_agent(instance_token[i], sample_token[i], 2, False)
-#
-#         if len(past) >= 1:
-#             print("WARN: ",  instance_token[i], " ", sample_token[i], " past: ", past)
-#             count += 1
-#         prev_change_token = instance_token[i]
-#
-# count
-#
-# for i in range(652, 671):
-#     print(instance_token[i], " ", sample_token[i])
-#
-# k = 653
-# sample = nuscenes.get('sample', sample_token[k])
-# prev_sample_token = sample['prev']
-# prev_sample = nuscenes.get('sample', prev_sample_token)
-# annot = helper.get_sample_annotation(instance_token[k], prev_sample_token)
-# sample = prev_sample
-#
-# annot
-#
-#
-#
-# # verify categories for instances to be tracked
-# for token in instance_token:
-#     category_token = nuscenes.get('instance', token)['category_token']
-#     category = nuscenes.get('category', category_token)
-#     print(category['name'])
-#
-#
-#
+
 # nusc_map = NuScenesMap(dataroot='/data/sets/nuscenes', map_name='singapore-onenorth')
 # fig, ax = nusc_map.render_layers(nusc_map.non_geometric_layers, figsize=1)
-#
+
 # sample_traffic_light_record = nusc_map.traffic_light[0]
 # sample_traffic_light_record
 #
