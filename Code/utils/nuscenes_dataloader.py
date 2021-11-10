@@ -48,7 +48,7 @@ class NuscenesLoader(Loader):
            context:{
                 <context_key> (same as sample token) :
                             {
-                                neighbors: []               # list of instance neighbors that are vehicles in the sample
+                                neighbors: []               # list of instance neighbors that are VEHICLES in the sample
                                 humans: []                  # list of pedestrians in the sample
                                 objects: []                 # list of objects in the sample
                                 map: str                    # map id of the sample
@@ -122,8 +122,8 @@ class NuscenesLoader(Loader):
             # build entry in the dictionary
             context[sample_token] = {
                                         'neighbors':        [],
-                                        'humans':           [],
-                                        'objects':          [],
+                                        'humans':           {},
+                                        'objects':          {},
                                         'map':              location
                                     }
 
@@ -198,7 +198,7 @@ class NuscenesLoader(Loader):
                                           'speed':          [],                # list of scalar
                                           'accel':          [],                # list scalar
                                           'heading_rate':   [],                # list scalar
-                                          'context':        [],                # list of ids
+                                          'context':        {'next': 0},       # dictionary of ids of context-scenes.
                                           }
 
                 agent = agents[instance_token]
@@ -226,7 +226,7 @@ class NuscenesLoader(Loader):
                     attributes: tuple = self.__get_agent_attributes(tmp_annotation)
 
                     # set attributes of agent
-                    agent['context'].append(sample_token)
+                    agent['context'][sample_token] = agent['context']['next']
                     agent['abs_pos'].append(attributes[0])
                     agent['rotation'].append(attributes[1])
                     agent['speed'].append(attributes[2])
@@ -234,6 +234,9 @@ class NuscenesLoader(Loader):
                     agent['heading_rate'].append(attributes[4])
                     agent['ego_pos'].append(attributes[5])
                     agent['ego_rotation'].append(attributes[6])
+
+                    # update next position available of data
+                    agent['context']['next'] += 1
 
                     # move to next sample_annotation if possible
                     try:
@@ -258,12 +261,20 @@ class NuscenesLoader(Loader):
     def get_context_information(self):
         """
         function to get the context information. We ought to rember that context in this dataset is obtained from the
-        SAMPLE_ANNOTATION table. By the moment we obtain the pedestrians and obstacles in a record of sample_annotation
+        SAMPLE_ANNOTATION table. By the moment we obtain the pedestrians and obstacles information in a record of sample_annotation
         (a record of an agent in time) and we store the SAMPLE_ANNOTATION TOKEN so we can then obtain any information that
         is relevant to the model, like its position, its attributes, etc, by quering the database of this record.
 
         :return: None
         """
+
+        def add_non_agent_info(collection: dict, sample_annotation):
+            sample_annotation_token = sample_annotation['token']
+            if collection.get(sample_annotation_token) is None:
+                collection[sample_annotation_token] = {
+                    'abs_pos': sample_annotation['translation'][0:2]
+                }
+
         dataset_context = self.dataset['context']
         keys = dataset_context.keys()
         for key in keys:
