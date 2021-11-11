@@ -9,6 +9,7 @@ import os.path
 from pyquaternion import Quaternion
 import matplotlib.pyplot as plt
 import numpy as np
+from Agent import Agent
 
 # nuscenes libraries
 from nuscenes.nuscenes import NuScenes
@@ -103,6 +104,8 @@ class NuscenesLoader(Loader):
             self.get_context_information()
             self.save_pickle_data(pickle_filename)
 
+        Agent.context_dict = self.dataset['context']
+
     # set verbose mode which determines if it should print the relevant information while processing the data
     def setVerbose(self, verbose: bool):
         self.verbose = verbose
@@ -122,8 +125,8 @@ class NuscenesLoader(Loader):
             # build entry in the dictionary
             context[sample_token] = {
                                         'neighbors':        [],
-                                        'humans':           {},
-                                        'objects':          {},
+                                        'humans':           [],
+                                        'objects':          [],
                                         'map':              location
                                     }
 
@@ -157,19 +160,6 @@ class NuscenesLoader(Loader):
 
         return [abs_pos[0], abs_pos[1]], rotation, speed, accel, heading_rate, ego_pose_xy, ego_rotation
 
-    # <NOT USED> get all the relative positions of an agent in the scene (relative to the vehicle that has the camera recording)
-    def __get_rel_pos(self, instance_token: str, head_sample: dict):
-
-        # to get the first relative position you need to move to the next sample to see the past (this is due to how the data is stored)
-        next_sample = self.nuscenes.get('sample', head_sample['next'])
-
-        # see the past to get the first relative position
-        first_pos = self.helper.get_past_for_agent(instance_token, next_sample['token'], 0.5, True)
-
-        # see the future to get all the other relative positions
-        future_pos = self.helper.get_future_for_agent(instance_token, head_sample['token'], 20, True)
-        return np.append(first_pos, future_pos, axis=0)
-
     def load_data(self) -> dict:
         # list of the form <instance_token>_<sample_token>
         mini_train: list = get_prediction_challenge_split(self.data_name, dataroot=self.DATAROOT)
@@ -179,7 +169,7 @@ class NuscenesLoader(Loader):
         instance_tokens = set(inst_sampl_tokens[:, 0])
 
         # dictionary of agents
-        agents = {}
+        agents: dict[Agent] = {}
 
         # traverse all instances and samples
         for instance_token in instance_tokens:
@@ -191,17 +181,8 @@ class NuscenesLoader(Loader):
                     print('new agent: ', instance_token)
 
                 # agent does not exist, create new agent
-                agents[instance_token] = {'abs_pos':        [],                # list of coordinates in the world frame (2d) (sequence)
-                                          'ego_pos':        [],                # position of the ego vehicle, the one with the cameras
-                                          'rotation':       [],                # list of rotation parametrized as a quaternion
-                                          'ego_rotation':   [],                # list of rotations of ego vehicle
-                                          'speed':          [],                # list of scalar
-                                          'accel':          [],                # list scalar
-                                          'heading_rate':   [],                # list scalar
-                                          'context':        {'next': 0},       # dictionary of ids of context-scenes.
-                                          }
-
-                agent = agents[instance_token]
+                agents[instance_token] = Agent()
+                agent: Agent = agents[instance_token]
 
                 # get head_annotation
                 first_annotation_token: str = instance['first_annotation_token']
@@ -210,9 +191,12 @@ class NuscenesLoader(Loader):
                 # tmp annotation to traverse them
                 tmp_annotation = first_annotation
 
-                # GET and SET all the relative positions (relative to the camera in the vehicle)
-                #rel_pos: numpy.array = self.__get_rel_pos(instance_token, self.nuscenes.get('sample', first_annotation['sample_token']))
-                #agent['rel_pos'] = rel_pos
+                # get the map_name of the agent
+                scene_token = self.nuscenes.get('sample', first_annotation['sample_token'])['scene_token']
+                scene = self.nuscenes.get('scene', scene_token)
+                location = self.nuscenes.get('log', scene['log_token'])['location']
+
+                agent.map_name = location
 
                 # traverse forward sample_annotations from first_annotation
                 while tmp_annotation is not None:
@@ -221,22 +205,13 @@ class NuscenesLoader(Loader):
                     # insert neighbors to corresponding context dictionary
                     self.insert_context_neighbor(instance_token, sample_token)
 
-                    # GET abs_pos: [], rotation: [], speed: float , accel: float, heading_rate: float, ego_pose: np.array([x, y]),
-                    # ego_rotation : np.array([z1, z2, z3, z4])
+                    # get agent attributes tuple as: [0]-> abs_pos: list, [1]-> rotation: list, [2]-> speed: float ,
+                    # [3]-> accel: float, [4]-> heading_rate: float, [5]-> ego_pose: list, [6]-> ego_rotation : list
                     attributes: tuple = self.__get_agent_attributes(tmp_annotation)
 
                     # set attributes of agent
-                    agent['context'][sample_token] = agent['context']['next']
-                    agent['abs_pos'].append(attributes[0])
-                    agent['rotation'].append(attributes[1])
-                    agent['speed'].append(attributes[2])
-                    agent['accel'].append(attributes[3])
-                    agent['heading_rate'].append(attributes[4])
-                    agent['ego_pos'].append(attributes[5])
-                    agent['ego_rotation'].append(attributes[6])
-
-                    # update next position available of data
-                    agent['context']['next'] += 1
+                    agent.add_observation(sample_token, attributes[0], attributes[1], attributes[2], attributes[3],
+                                          attributes[4], attributes[5], attributes[6])
 
                     # move to next sample_annotation if possible
                     try:
@@ -248,10 +223,10 @@ class NuscenesLoader(Loader):
                 # close while
 
                 # transform to np arrays
-                agent['abs_pos'] = np.array(agent['abs_pos'])
-                agent['ego_pos'] = np.array(agent['ego_pos'])
-                agent['rotation'] = np.array(agent['rotation'])
-                agent['ego_rotation'] = np.array(agent['ego_rotation'])
+                agent.abs_pos = np.array(agent.abs_pos)
+                agent.ego_pos = np.array(agent.ego_pos)
+                agent.rotation = np.array(agent.rotation)
+                agent.ego_rotation = np.array(agent.ego_rotation)
 
             # close IF agent.get(instance_token) Block
 
@@ -326,61 +301,6 @@ class NuscenesLoader(Loader):
 
         return flag
 
-    def plotMasks(self, agent: dict, height=200, width=200):
-        """
-        exploratory function to plot the bitmaps of an agent's positions
-        :param agent: agent's data dictionary
-        :param height: height of the bitmap
-        :param width:  width of the bitmap
-        :return: None
-        """
-
-        # get map
-        context_id = agent['context'][0]
-        map_name = self.dataset['context'][context_id]['map']
-        map = self.maps[map_name]
-
-        # traverse agent positions
-        for pos in agent['abs_pos']:
-            x, y = pos[0], pos[1]
-            patch_box = (x, y, height, width)
-            patch_angle = 0  # Default orientation where North is up
-            layer_names = ['drivable_area', 'walkway']
-            canvas_size = (1000, 1000)
-
-            figsize = (12, 4)
-            fig, ax = map.render_map_mask(patch_box, patch_angle, layer_names, canvas_size, figsize=figsize, n_row=1)
-            fig.show()
-
-    def getMasks(self, agent, yaw=0, height=200, width=200):
-        """
-         function to get the bitmaps of an agent's positions
-        :param agent: agent's data dictionary
-        :param yaw: angle of rotation of the masks
-        :param height: height of the bitmap
-        :param width:  width of the bitmap
-        :return: list of bitmaps (each mask contains 2 bitmaps)
-        """
-
-        # get map
-        context_id = agent['context'][0]
-        map_name = self.dataset['context'][context_id]['map']
-        map = self.maps[map_name]
-
-        masks_list = []
-
-        # traverse agents positions
-        for pos in agent['abs_pos']:
-            x, y = pos[0], pos[1]
-            patch_box = (x, y, height, width)
-            patch_angle = yaw  # Default orientation (yaw=0) where North is up
-            layer_names = ['drivable_area', 'walkway']
-            canvas_size = (1000, 1000)
-            map_mask = map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
-            masks_list.append(map_mask)
-
-        return masks_list
-
     def _get_custom_trajectories_data(self, **kwargs):
         """
         get absolute positons, rotations, relative positions and relative rotations to a given point in the ego_positions
@@ -428,20 +348,20 @@ class NuscenesLoader(Loader):
 # -------------------------------------------------------------------- TESTING -------------------------------------------------------------------- #
 
 #
-# dataroot_base = '/data/sets/nuscenes'
+dataroot_base = '/data/sets/nuscenes'
 # dataroot_train = '/media/juan/Elements'
 #
 # # dataset attributes
 # #dataroot = dataroot_train + dataroot_base
-# dataroot = dataroot_base
+dataroot = dataroot_base
 #
 # #version = 'v1.0-trainval'
-# version = 'v1.0-mini'
+version = 'v1.0-mini'
 #
 # #data_name = 'train'
-# data_name = 'mini_train'
+data_name = 'mini_train'
 #
-# nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=False, version=version, data_name=data_name)
+nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=False, version=version, data_name=data_name)
 # print(nuscenes_loader.check_consistency())
 #
 # trajectories_dataset = nuscenes_loader.get_trajectories_data(size=20, mode='overlap', offset=10)
@@ -489,3 +409,14 @@ class NuscenesLoader(Loader):
 
 
 #nuscenes_loader.plotMasks(agents_list[0])
+
+agents = list(nuscenes_loader.dataset['agents'].values())
+agent = agents[0]
+#agent.plotMasks(nuscenes_loader.maps)
+
+nuscenes_loader.get_trajectories_indexes(15)
+
+mat = agent.get_transformer_matrix(nuscenes_loader.dataset['agents'], 0)
+
+
+mat

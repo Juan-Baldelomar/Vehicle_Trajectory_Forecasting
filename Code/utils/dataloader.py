@@ -80,6 +80,7 @@ class Loader:
             file = open(filename, 'rb')
             self.dataset = pickle.load(file)
             file.close()
+            print('[MSG] pickle data read succesfuly from: ', filename)
             return True
 
         except FileNotFoundError:
@@ -110,18 +111,17 @@ class Loader:
 
         """
         for key, agent in self.dataset['agents'].items():
-            agent_datasize = len(agent['abs_pos'])
-            agent['index'] = []
+            agent_datasize = len(agent.abs_pos)
 
             if agent_datasize - skip >= size:
                 if mode == 'overlap':
                     start, end = skip, size
                     while end <= agent_datasize:
-                        agent['index'].append((start, end))
+                        agent.index_list.append((start, end))
                         start = end - overlap_points
                         end = start + size
                 else:
-                    agent['index'].append((skip, size))
+                    agent.index_list.append((skip, size))
 
             elif self.verbose:
                 print('Agent {} does not have enough points in the trajectory'.format(key))
