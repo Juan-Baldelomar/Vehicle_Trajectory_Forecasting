@@ -46,7 +46,7 @@ class Loader:
     def __init__(self, DATAROOT, verbose):
         self.DATAROOT = DATAROOT
         self.origin_offset = 0
-        self.dataset: dict = {'agents': {}}
+        self.dataset: dict = {'agents': {}, 'ego_vehicles': {}}
         self.verbose = verbose
 
     def load_data(self):

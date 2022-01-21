@@ -100,6 +100,7 @@ class NuscenesLoader(Loader):
         else:
             # load data from scratch
             self.dataset['context'] = {}
+            self.load_ego_vehicles()
             self.dataset['agents'] = self.load_data()
             self.get_context_information()
             self.save_pickle_data(pickle_filename)
@@ -160,6 +161,31 @@ class NuscenesLoader(Loader):
 
         return [abs_pos[0], abs_pos[1]], rotation, speed, accel, heading_rate, ego_pose_xy, ego_rotation
 
+    def load_ego_vehicles(self):
+        scenes = self.nuscenes.scene
+        for scene in scenes:
+            # read token and use it as id for ego_vehicle
+            token = scene['token']
+            self.dataset['ego_vehicles'][token] = {}
+
+            # read its first sample token
+            sample_token = scene['first_sample_token']
+
+            while sample_token != '':
+                sample = self.nuscenes.get('sample', sample_token)
+
+                # get sample_data_token of a sensor to read EGO_POSE
+                sample_data_token = sample['data']['RADAR_FRONT']
+
+                # get ego_pose
+                ego_pose_token = self.nuscenes.get('sample_data', sample_data_token)['ego_pose_token']
+                ego_pose = self.nuscenes.get('ego_pose', ego_pose_token)
+                ego_pose_xy = ego_pose['translation'][:2]
+                ego_rotation = ego_pose['rotation']
+
+                self.dataset['ego_vehicles'][token][sample_token] = {'pos': ego_pose_xy, 'rot': ego_rotation, 'neighbors': []}
+                sample_token = sample['next']
+
     def load_data(self) -> dict:
         # list of the form <instance_token>_<sample_token>
         mini_train: list = get_prediction_challenge_split(self.data_name, dataroot=self.DATAROOT)
@@ -196,13 +222,16 @@ class NuscenesLoader(Loader):
                 scene = self.nuscenes.get('scene', scene_token)
                 location = self.nuscenes.get('log', scene['log_token'])['location']
 
+                # set agents map and scene  (NOTE: should map attribute of agent be moved to another class ?)
                 agent.map_name = location
+                agent.scene_token = scene_token
 
                 # traverse forward sample_annotations from first_annotation
                 while tmp_annotation is not None:
                     sample_token = tmp_annotation['sample_token']
 
-                    # insert neighbors to corresponding context dictionary
+                    # insert neighbors to corresponding context dictionary and to ego_vehicle dictionary
+                    self.dataset['ego_vehicles'][scene_token][sample_token]['neighbors'].append(instance_token)
                     self.insert_context_neighbor(instance_token, sample_token)
 
                     # get agent attributes tuple as: [0]-> abs_pos: list, [1]-> rotation: list, [2]-> speed: float ,
@@ -343,80 +372,3 @@ class NuscenesLoader(Loader):
                 trajectories['rel_rotation'].append(rel_rotation)
 
         return trajectories
-
-
-# -------------------------------------------------------------------- TESTING -------------------------------------------------------------------- #
-
-#
-dataroot_base = '/data/sets/nuscenes'
-# dataroot_train = '/media/juan/Elements'
-#
-# # dataset attributes
-# #dataroot = dataroot_train + dataroot_base
-dataroot = dataroot_base
-#
-# #version = 'v1.0-trainval'
-version = 'v1.0-mini'
-#
-# #data_name = 'train'
-data_name = 'mini_train'
-#
-nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=False, version=version, data_name=data_name)
-# print(nuscenes_loader.check_consistency())
-#
-# trajectories_dataset = nuscenes_loader.get_trajectories_data(size=20, mode='overlap', offset=10)
-#
-#
-# # get tensorflow dataset
-# pos_dataset = tf.data.Dataset.from_tensor_slices(trajectories_dataset['abs_pos'])
-# rot_dataset = tf.data.Dataset.from_tensor_slices(trajectories_dataset['rotation'])
-#
-# full_dataset = tf.data.Dataset.zip((pos_dataset, rot_dataset))
-#
-# pos_element = pos_dataset.take(1)
-# rot_element = rot_dataset.take(1)
-# full_element = full_dataset.take(1)
-#
-# for i, x in enumerate(pos_element):
-#     print(i, " ", x)
-#
-# for i, x in enumerate(rot_element):
-#     print(i, " ", x)
-#
-# for i, (x, y) in enumerate(full_element):
-#     print(tf.concat((x, y), axis=1))
-#
-#
-# agents_list = list(nuscenes_loader.dataset['agents'].values())
-#
-#
-# save_pkl_data(trajectories_dataset, '/data/traj_data.pkl')
-# data = load_pkl_data('/data/traj_data.pkl')
-# -------------------------------------------------------------------- MAPA --------------------------------------------------------------------
-
-
-# This is the path where you stored your copy of the nuScenes dataset.
-#DATAROOT = dataroot
-
-# nuscenes = NuScenes('v1.0-mini', dataroot=DATAROOT)
-# helper = PredictHelper(nuscenes)
-# mini_train = get_prediction_challenge_split("mini_train", dataroot=DATAROOT)
-# toks = [x.split('_') for x in mini_train]
-
-#nusc_map = NuScenesMap(dataroot=dataroot, map_name='singapore-onenorth')
-#fig, ax = nusc_map.render_layers(nusc_map.non_geometric_layers, figsize=2)
-#fig.show()
-
-
-#nuscenes_loader.plotMasks(agents_list[0])
-
-agents = list(nuscenes_loader.dataset['agents'].values())
-agent = agents[0]
-#agent.plotMasks(nuscenes_loader.maps)
-
-nuscenes_loader.get_trajectories_indexes(15)
-
-mat = agent.get_transformer_matrix(nuscenes_loader.dataset['agents'], 0)
-
-
-mat

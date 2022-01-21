@@ -1,10 +1,14 @@
 
 import numpy as np
 
+
 class Agent:
     context_dict = None
 
     def __init__(self):
+        self.map_name = None
+        self.scene_token = None
+
         self.abs_pos = []           # list of coordinates in the world frame (2d) (sequence)
         self.ego_pos = []           # position of the ego vehicle, the one with the cameras
         self.rotation = []          # list of rotation parametrized as a quaternion
@@ -16,7 +20,6 @@ class Agent:
         self.cont_av_pos = 0        # int that indicates the next available position for the context dictionary
         self.index_list = []        # list of indexes that indicate the start and end of the multiple trajectories that can be obtained
                                     # from the same agent
-        self.map_name = None
 
     def add_observation(self, t_context, t_abs_pos, t_rotation, t_speed, t_accel, t_heading_rate, t_ego_pos, t_ego_rotation):
         self.context[t_context] = self.cont_av_pos
@@ -101,15 +104,28 @@ class Agent:
 
         return neighbors
 
-    def get_transformer_matrix(self, agents: dict, kth_traj):
+    def get_transformer_matrix(self, agents: dict, kth_traj: int, offset_origin=-1):
+        assert (kth_traj < len(self.index_list))
+
         neighbors_positions = self.get_neighbors(kth_traj)
         start, end = self.index_list[kth_traj]
+
+        assert (offset_origin < end - start)
+
         traj_size = end - start
         matrix = np.zeros((len(neighbors_positions), traj_size, 2))
-
         time_steps = list(self.context.keys())
+
+        # use a fixed origin in the agent abs positions
+        if offset_origin >= 0:
+            x_o, y_o = self.abs_pos[offset_origin]
+
         for j in range(start, end):
-            x_o, y_o = self.abs_pos[j]
+
+            # use the current abs position of the agent as origin
+            if offset_origin < 0:
+                x_o, y_o = self.abs_pos[j]
+
             context_key = time_steps[j]
             agent_neighbor_ids = Agent.context_dict[context_key]['neighbors']
 
