@@ -166,7 +166,7 @@ class NuscenesLoader(Loader):
         for scene in scenes:
             # read token and use it as id for ego_vehicle
             token = scene['token']
-            self.dataset['ego_vehicles'][token] = {}
+            self.dataset['ego_vehicles'][token] = {'indexes': [], 'timesteps': {}}
 
             # read its first sample token
             sample_token = scene['first_sample_token']
@@ -183,7 +183,7 @@ class NuscenesLoader(Loader):
                 ego_pose_xy = ego_pose['translation'][:2]
                 ego_rotation = ego_pose['rotation']
 
-                self.dataset['ego_vehicles'][token][sample_token] = {'pos': ego_pose_xy, 'rot': ego_rotation, 'neighbors': []}
+                self.dataset['ego_vehicles'][token]['timesteps'][sample_token] = {'pos': ego_pose_xy, 'rot': ego_rotation, 'neighbors': []}
                 sample_token = sample['next']
 
     def load_data(self) -> dict:
@@ -231,7 +231,7 @@ class NuscenesLoader(Loader):
                     sample_token = tmp_annotation['sample_token']
 
                     # insert neighbors to corresponding context dictionary and to ego_vehicle dictionary
-                    self.dataset['ego_vehicles'][scene_token][sample_token]['neighbors'].append(instance_token)
+                    self.dataset['ego_vehicles'][scene_token]['timesteps'][sample_token]['neighbors'].append(instance_token)
                     self.insert_context_neighbor(instance_token, sample_token)
 
                     # get agent attributes tuple as: [0]-> abs_pos: list, [1]-> rotation: list, [2]-> speed: float ,
