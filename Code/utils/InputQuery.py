@@ -19,7 +19,7 @@ class InputQuery:
         yaw, _, _ = rel_rot.yaw_pitch_roll
         yaw = yaw / np.pi * 180
 
-        return x_pos, y_pos, vel, acc, yaw
+        return x_pos, y_pos, yaw, vel, acc,
 
     def get_indexes(self, L, start=2, overlap=0):
         ego_vehicles: dict = self.dataloader.dataset['ego_vehicles']
@@ -45,7 +45,7 @@ class InputQuery:
 
         for ego_id, ego_dict in ego_vehicles.items():
             inputTensor: np.ndarray = np.zeros((l, N, 5))  # (seq, neighbors, features)
-
+            inputMask: np.ndarray = np.ones((l, N))
             # neighbor map to store which position in the inputTensor corresponds to each neighbor
             neighbor_pos_map = {}
             available_pos = 0
@@ -87,8 +87,10 @@ class InputQuery:
                     timestep_pos = agent.context[timestep_id]
                     # get features of the agent in this timestep
                     inputTensor[s_index, neighbor_pos, :] = self.get_features(agent, timestep_pos, origin_x, origin_y, origin_rot)
+                    # turn off mask in this position
+                    inputMask[s_index, neighbor_pos] = 0
 
-            list_inputs.append(inputTensor)
+            list_inputs.append((inputTensor, inputMask))
 
         # return inputs
         return list_inputs

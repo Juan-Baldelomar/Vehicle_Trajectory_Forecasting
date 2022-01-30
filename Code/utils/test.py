@@ -1,6 +1,7 @@
 
 from nuscenes_dataloader import NuscenesLoader
 from InputQuery import InputQuery
+import dataloader as dl
 
 
 # PATH
@@ -19,22 +20,24 @@ version = 'v1.0-trainval'
 data_name = 'train'
 #data_name = 'mini_train'
 
-nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=False, version=version, data_name=data_name)
+nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name)
 
 inputQuery = InputQuery(nuscenes_loader)
 
 cubes = inputQuery.get_TransformerCube_Input(N=10, offset=7)
 
-cubes[400]
+cubes[0]
 
+
+dl.save_pkl_data(cubes, 'nusc_inps.pkl')
 
 # count scenes that do have neighbors with a trajectory to forecast
-count = 0
-for vehicle in nuscenes_loader.dataset['ego_vehicles'].values():
-    for timestep in vehicle.values():
-        if len(timestep['neighbors']) > 0:
-            count += 1
-            break
+# count = 0
+# for vehicle in nuscenes_loader.dataset['ego_vehicles'].values():
+#     for timestep in vehicle.values():
+#         if len(timestep['neighbors']) > 0:
+#             count += 1
+#             break
 
 # -------------------------------------------------------------------- MAPA --------------------------------------------------------------------
 
