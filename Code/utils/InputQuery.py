@@ -5,27 +5,55 @@ import numpy as np
 from pyquaternion import Quaternion
 
 
+def verifyNan(cubes):
+    for cube in cubes:
+        input = cube[0]
+        target = cube[3]
+        for face in input:
+            for row in face:
+                for pos, element in enumerate(row):
+                    if np.isnan(element):
+                        print('[WARN]: Nan values in input at pos ', pos)
+
+        for face in target:
+            for row in face:
+                for pos, element in enumerate(row):
+                    if np.isnan(element):
+                        print('[WARN]: Nan values in target at pos ', pos)
+
+
 class InputQuery:
 
     def __init__(self, dataloader: Loader):
         self.dataloader = dataloader
 
-    def get_features(self, agent:Agent, pos, x_o=0, y_o=0, origin_rot=(0, 0, 0, 1)):
+    def get_features(self, agent: Agent, pos, x_o=0, y_o=0, origin_rot=(0, 0, 0, 1)):
         x_pos = agent.abs_pos[pos][0] - x_o
         y_pos = agent.abs_pos[pos][1] - y_o
         vel = agent.speed[pos]
         acc = agent.accel[pos]
         rel_rot = Quaternion(origin_rot).inverse * Quaternion(agent.rotation[pos])
         yaw, _, _ = rel_rot.yaw_pitch_roll
-        yaw = yaw / np.pi * 180
+        yaw = yaw               # in radians
+
+        # remove nans
+        i = 1
+        while np.isnan(vel):
+            vel = agent.speed[pos + i]
+            i += 1
+
+        i = 2
+        while np.isnan(acc):
+            acc = agent.accel[pos + i]
+            i += 1
 
         return x_pos, y_pos, yaw, vel, acc,
 
-    def get_indexes(self, L, start=2, overlap=0):
+    def get_indexes(self, L, overlap=0):
         ego_vehicles: dict = self.dataloader.dataset['ego_vehicles']
         for ego_id, ego_dict in ego_vehicles.items():
-            tmp_start = start
-            timesteps = list(ego_dict['timesteps'].items())[start:]
+            tmp_start = 0
+            timesteps = list(ego_dict['timesteps'].items())
             for s_index, (timestep_id, timestep) in enumerate(timesteps):
                 if len(timestep['neighbors']) == 0:
                     tmp_start += 1
@@ -35,17 +63,23 @@ class InputQuery:
                     ego_dict['indexes'].append((tmp_start, tmp_start + L))
                     break
 
-    def get_TransformerCube_Input(self, l=14, N=25, offset=-1):
+    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1):
         # get indexes of the sequences
-        self.get_indexes(l)
+        self.get_indexes(inp_seq_l + tar_seq_l)
+
         # useful variables
         ego_vehicles: dict = self.dataloader.dataset['ego_vehicles']
         agents: dict = self.dataloader.dataset['agents']
         list_inputs = []
 
+        # max sequence lenght
+        total_seq_l = inp_seq_l + tar_seq_l
+
         for ego_id, ego_dict in ego_vehicles.items():
-            inputTensor: np.ndarray = np.zeros((l, N, 5))  # (seq, neighbors, features)
-            inputMask: np.ndarray = np.ones((l, N))
+            inputTensor = np.zeros((total_seq_l, N, 5))   # (seq, neighbors, features)
+            inputMask = np.ones((total_seq_l, N))         # at the beginning, all neighbors have padding
+            seq_inputMask = np.zeros(total_seq_l)         # at the beginning, all sequence elements are padded
+
             # neighbor map to store which position in the inputTensor corresponds to each neighbor
             neighbor_pos_map = {}
             available_pos = 0
@@ -90,7 +124,25 @@ class InputQuery:
                     # turn off mask in this position
                     inputMask[s_index, neighbor_pos] = 0
 
-            list_inputs.append((inputTensor, inputMask))
+            inp, tar = inputTensor[:inp_seq_l, :, :], inputTensor[inp_seq_l - 1:, :, :]
+            inp_mask, tar_mask = inputMask[:inp_seq_l, :], inputMask[inp_seq_l - 1:, :]
+            seq_inpMask, seq_tarMask = seq_inputMask[:inp_seq_l], seq_inputMask[inp_seq_l - 1:]
+
+            dif_seq_l = inp_seq_l - (tar_seq_l + 1)
+            zeros = np.zeros((int(abs(dif_seq_l)), N, 5))
+            ones_mask = np.ones((int(abs(dif_seq_l)), N))
+
+            if dif_seq_l > 0:
+                tar = np.append(tar, zeros, axis=0)
+                tar_mask = np.append(tar_mask, ones_mask, axis=0)
+                seq_tarMask = np.append(seq_tarMask, np.ones(dif_seq_l), axis=0)
+
+            elif dif_seq_l < 0:
+                inp = np.append(inp, zeros, axis=0)
+                inp_mask = np.append(inp_mask, ones_mask, axis=0)
+                seq_inpMask = np.append(seq_inpMask, np.ones(-dif_seq_l), axis=0)
+
+            list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask))
 
         # return inputs
         return list_inputs

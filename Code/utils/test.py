@@ -1,6 +1,7 @@
 
 from nuscenes_dataloader import NuscenesLoader
 from InputQuery import InputQuery
+from InputQuery import verifyNan
 import dataloader as dl
 
 
@@ -24,9 +25,9 @@ nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version
 
 inputQuery = InputQuery(nuscenes_loader)
 
-cubes = inputQuery.get_TransformerCube_Input(N=10, offset=7)
+cubes = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7)
 
-cubes[0]
+verifyNan(cubes)
 
 
 dl.save_pkl_data(cubes, 'nusc_inps.pkl')
