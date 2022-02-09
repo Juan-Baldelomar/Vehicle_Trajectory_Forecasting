@@ -105,12 +105,8 @@ class Agent:
         return neighbors
 
     def get_transformer_matrix(self, agents: dict, kth_traj: int, offset_origin=-1):
-        assert (kth_traj < len(self.index_list))
-
         neighbors_positions = self.get_neighbors(kth_traj)
         start, end = self.index_list[kth_traj]
-
-        assert (offset_origin < end - start)
 
         traj_size = end - start
         matrix = np.zeros((len(neighbors_positions), traj_size, 2))
