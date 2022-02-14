@@ -136,6 +136,7 @@ class NuscenesLoader(Loader):
             # build entry in the dictionary
             context[sample_token] = {
                                         'neighbors':        [],
+                                        'non_pred_neighbors': set(),
                                         'humans':           [],
                                         'objects':          [],
                                         'map':              location
@@ -308,6 +309,8 @@ class NuscenesLoader(Loader):
                     context['humans'].append(sample_annotation['token'])
                 elif categories[0] == ('movable_object' or 'static_object'):
                     context['objects'].append(sample_annotation['token'])
+                elif categories[0] == 'vehicle':
+                    context['non_pred_neighbors'].add(sample_annotation['token'])
 
     def check_consistency(self):
         """

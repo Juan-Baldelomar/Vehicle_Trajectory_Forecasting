@@ -22,7 +22,7 @@ version = 'v1.0-trainval'
 data_name = 'train'
 #data_name = 'mini_train'
 
-nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name)
+nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=False, version=version, data_name=data_name)
 
 inputQuery = InputQuery(nuscenes_loader)
 
@@ -35,6 +35,7 @@ verifyNan(agent_cubes, agent_ids)
 final_cubes = cubes + agent_cubes
 dl.save_pkl_data(final_cubes, 'nusc_inps.pkl')
 
+nuscenes_loader.nuscenes.get('sample_annotation', '67359ca5094147f3b3b210d406873407')
 
 # count scenes that do have neighbors with a trajectory to forecast
 # count = 0
