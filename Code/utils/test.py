@@ -1,3 +1,4 @@
+import numpy as np
 
 from nuscenes_dataloader import NuscenesLoader
 from InputQuery import InputQuery
@@ -25,12 +26,15 @@ nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version
 
 inputQuery = InputQuery(nuscenes_loader)
 
-cubes = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7)
+cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7)
+agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7)
 
-verifyNan(cubes)
+verifyNan(cubes, ids)
+verifyNan(agent_cubes, agent_ids)
 
+final_cubes = cubes + agent_cubes
+dl.save_pkl_data(final_cubes, 'nusc_inps.pkl')
 
-dl.save_pkl_data(cubes, 'nusc_inps.pkl')
 
 # count scenes that do have neighbors with a trajectory to forecast
 # count = 0

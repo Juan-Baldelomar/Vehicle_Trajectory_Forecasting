@@ -5,7 +5,8 @@ import numpy as np
 class Agent:
     context_dict = None
 
-    def __init__(self):
+    def __init__(self, agent_id=None):
+        self.agent_id = agent_id
         self.map_name = None
         self.scene_token = None
 
@@ -86,8 +87,10 @@ class Agent:
 
     # return list of unique neighbors through all the trajectory
     def get_neighbors(self, kth_traj):
-        start, end = self.index_list[kth_traj]
+        if len(self.index_list) == 0:
+            return None
 
+        start, end = self.index_list[kth_traj]
         keys = list(self.context.keys())
         neighbors = {}
         pos_available = 0

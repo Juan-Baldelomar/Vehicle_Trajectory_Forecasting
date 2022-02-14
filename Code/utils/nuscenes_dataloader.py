@@ -75,10 +75,13 @@ class NuscenesLoader(Loader):
         # specify nuscenes attributes
         self.version: str = version
         self.data_name: str = data_name
-        self.nuscenes = NuScenes(version, dataroot=DATAROOT)
-        self.helper = PredictHelper(self.nuscenes)
+
         #self.verbose: bool = verbose
         self.rel_offset = rel_offset
+
+        # nuscenes useful objects
+        self.nuscenes = None
+        self.helper = None
 
         # nuscenes map expansion attributes
         # map names = 'singapore-onenorth', 'singepore-hollandvillage', 'singapore-queenstown', 'boston-seaport'
@@ -96,8 +99,11 @@ class NuscenesLoader(Loader):
         if pickle and pickle_ok:
             # its okay to read pickle files to load data
             self.load_pickle_data(pickle_filename)
+            self.name_agents()
 
         else:
+            self.nuscenes = NuScenes(version, dataroot=DATAROOT)
+            self.helper = PredictHelper(self.nuscenes)
             # load data from scratch
             self.dataset['context'] = {}
             self.load_ego_vehicles()
@@ -110,6 +116,10 @@ class NuscenesLoader(Loader):
     # set verbose mode which determines if it should print the relevant information while processing the data
     def setVerbose(self, verbose: bool):
         self.verbose = verbose
+
+    def name_agents(self):
+        for agent_id, agent in self.dataset['agents'].items():
+            agent.agent_id = agent_id
 
     # create and insert neighbors to the context dictionary
     def insert_context_neighbor(self, instance_token: str, sample_token: str):
@@ -207,7 +217,7 @@ class NuscenesLoader(Loader):
                     print('new agent: ', instance_token)
 
                 # agent does not exist, create new agent
-                agents[instance_token] = Agent()
+                agents[instance_token] = Agent(instance_token)
                 agent: Agent = agents[instance_token]
 
                 # get head_annotation
