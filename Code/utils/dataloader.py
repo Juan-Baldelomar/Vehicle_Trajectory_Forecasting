@@ -1,4 +1,6 @@
 
+from Dataset import Dataset
+
 # utilities
 import numpy as np
 import pickle
@@ -46,7 +48,8 @@ class Loader:
     def __init__(self, DATAROOT, verbose):
         self.DATAROOT = DATAROOT
         self.origin_offset = 0
-        self.dataset: dict = {'agents': {}, 'ego_vehicles': {}}
+        #self.dataset: dict = {'agents': {}, 'ego_vehicles': {}}
+        self.dataset = Dataset()
         self.verbose = verbose
 
     def load_data(self):
@@ -110,8 +113,8 @@ class Loader:
         :return list with tuple of indexes <(start, end)> indicating the start and end for each sub-trajectory for each agent.
 
         """
-        for key, agent in self.dataset['agents'].items():
-            agent_datasize = len(agent.abs_pos)
+        for key, agent in self.dataset.agents.items():
+            agent_datasize = len(agent.context)
 
             if agent_datasize - skip >= size:
                 if mode == 'overlap':

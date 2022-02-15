@@ -1,6 +1,7 @@
 
 from dataloader import Loader
 from Agent import Agent
+from Dataset import *
 import numpy as np
 from pyquaternion import Quaternion
 
@@ -22,42 +23,48 @@ def verifyNan(cubes, ids):
                         print('[WARN]: Nan values in input at neighbor ', num_neighbor, ' -- agent: ', ids[num_agent])
 
 
+def remove_nans(cube, p):
+    cube = np.transpose(cube, (1, 0, 2))
+    for j in range(len(cube)):
+        nans_stack = []
+        last_non_nan = 0
+
+        for i in range(len(cube[0])):
+            if np.isnan(cube[j, i, p]):
+                nans_stack.insert(-1, i)
+            else:
+                last_non_nan = cube[j, i, p]
+                while len(nans_stack) > 0:
+                    index = nans_stack.pop(-1)
+                    cube[j, index, p] = last_non_nan
+
+        while len(nans_stack) > 0:
+            index = nans_stack.pop(-1)
+            cube[j, index, p] = last_non_nan
+
+    cube = np.transpose(cube, (1, 0, 2))
+
+
+def process_nans(cubes):
+    for cube in cubes:
+        inp = cube[0]
+        tar = cube[3]
+        remove_nans(inp, 3)
+        remove_nans(tar, 3)
+        remove_nans(inp, 4)
+        remove_nans(tar, 4)
+
+
 # get input features of an agent
-def get_features(agent: Agent, pos, x_o=0, y_o=0, origin_rot=(0, 0, 0, 1)):
-    x_pos = agent.abs_pos[pos][0] - x_o
-    y_pos = agent.abs_pos[pos][1] - y_o
-    vel = agent.speed[pos]
-    acc = agent.accel[pos]
-    rel_rot = Quaternion(origin_rot).inverse * Quaternion(agent.rotation[pos])
+def get_features(agent: Agent, step_id, x_o=0, y_o=0, origin_rot=(0, 0, 0, 1)):
+    agent_time_step : AgentTimestep = agent.context[step_id]
+    x_pos = agent_time_step.x - x_o
+    y_pos = agent_time_step.y - y_o
+    vel = agent_time_step.speed
+    acc = agent_time_step.accel
+    rel_rot = Quaternion(origin_rot).inverse * Quaternion(agent_time_step.rot)
     yaw, _, _ = rel_rot.yaw_pitch_roll
     yaw = yaw               # in radians
-
-    # remove nans in both directions possible
-    i = 1
-    while np.isnan(vel) and pos + i < len(agent.speed):
-        vel = agent.speed[pos + i]
-        i += 1
-
-    i = 1
-    while np.isnan(vel) and pos - i >= 0:
-        vel = agent.speed[pos - i]
-        i += 1
-
-    i = 1
-    while np.isnan(acc) and pos + i < len(agent.accel):
-        acc = agent.accel[pos + i]
-        i += 1
-
-    i = 1
-    while np.isnan(acc) and pos - i >= 0:
-        acc = agent.accel[pos - i]
-        i += 1
-
-    if np.isnan(acc):
-        print('agent: ', agent.agent_id, ' has acc nan at pos: ', pos)
-    if np.isnan(vel):
-        print('agent: ', agent.agent_id, ' has vel nan at pos: ', pos)
-
     return x_pos, y_pos, yaw, vel, acc
 
 
@@ -93,17 +100,17 @@ class InputQuery:
 
     # get index of start and end of a trajectory for the ego vehicle
     def get_indexes(self, L, overlap=0):
-        ego_vehicles: dict = self.dataloader.dataset['ego_vehicles']
-        for ego_id, ego_dict in ego_vehicles.items():
+        ego_vehicles: dict = self.dataloader.dataset.ego_vehicles
+        for ego_id, ego_vehicle in ego_vehicles.items():
             tmp_start = 0
-            timesteps = list(ego_dict['timesteps'].items())
+            timesteps = list(ego_vehicle.ego_steps.items())
             for s_index, (timestep_id, timestep) in enumerate(timesteps):
-                if len(timestep['neighbors']) == 0:
+                if len(self.dataloader.dataset.contexts[timestep_id].neighbors) == 0:
                     tmp_start += 1
                     continue
 
                 if tmp_start + L < len(timesteps):
-                    ego_dict['indexes'].append((tmp_start, tmp_start + L))
+                    ego_vehicle.indexes.append((tmp_start, tmp_start + L))
                     break
 
     def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1):
@@ -111,15 +118,15 @@ class InputQuery:
         self.get_indexes(inp_seq_l + tar_seq_l)
 
         # useful variables
-        ego_vehicles: dict = self.dataloader.dataset['ego_vehicles']
-        agents: dict = self.dataloader.dataset['agents']
+        ego_vehicles: dict = self.dataloader.dataset.ego_vehicles
+        agents: dict = self.dataloader.dataset.agents
         list_inputs = []
         list_agent_ids = []
 
         # max sequence lenght
         total_seq_l = inp_seq_l + tar_seq_l
 
-        for ego_id, ego_dict in ego_vehicles.items():
+        for ego_id, ego_vehicle in ego_vehicles.items():
             inputTensor = np.zeros((total_seq_l, N, 5))   # (seq, neighbors, features)
             inputMask = np.ones((total_seq_l, N))         # at the beginning, all neighbors have padding
             seq_inputMask = np.zeros(total_seq_l)         # at the beginning, all sequence elements are padded
@@ -129,21 +136,21 @@ class InputQuery:
             available_pos = 0
 
             # verify if scene is eligible for sequence prediction
-            if len(ego_dict['indexes']) == 0:
+            if len(ego_vehicle.indexes) == 0:
                 continue
 
             # start and end of the sequence
-            start, end = ego_dict['indexes'][0]
+            start, end = ego_vehicle.indexes[0]
             # timesteps that will be traversed
-            timesteps = list(ego_dict['timesteps'].items())[start: end]
+            timesteps: list[tuple[str, Egostep]] = list(ego_vehicle.ego_steps.items())[start: end]
 
             # origin translation and rotation axis
-            origin_x, origin_y = timesteps[offset][1]['pos'] if offset != -1 else (0, 0)
-            origin_rot = timesteps[offset][1]['rot'] if offset != -1 else (0, 0, 0, 1)
+            origin_x, origin_y = timesteps[offset][1].x, timesteps[offset][1].y if offset != -1 else (0, 0)
+            origin_rot = timesteps[offset][1].rot if offset != -1 else (0, 0, 0, 1)
 
             for s_index, (timestep_id, timestep) in enumerate(timesteps):
                 # neighbors IDs in each timestep
-                neighbors = timestep['neighbors']
+                neighbors = self.dataloader.dataset.contexts[timestep_id].neighbors
 
                 for neighbor in neighbors:
 
@@ -162,10 +169,8 @@ class InputQuery:
 
                     # retrieve agent
                     agent: Agent = agents[neighbor]
-                    # retrieve position where information is stored
-                    timestep_pos = agent.context[timestep_id]
                     # get features of the agent in this timestep
-                    inputTensor[s_index, neighbor_pos, :] = get_features(agent, timestep_pos, origin_x, origin_y, origin_rot)
+                    inputTensor[s_index, neighbor_pos, :] = get_features(agent, timestep_id, origin_x, origin_y, origin_rot)
                     # turn off mask in this position
                     inputMask[s_index, neighbor_pos] = 0
 
@@ -178,11 +183,10 @@ class InputQuery:
         return list_inputs, list_agent_ids
 
     def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1):
-
         self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l)
 
         # useful variables
-        agents: dict = self.dataloader.dataset['agents']
+        agents: dict = self.dataloader.dataset.agents
         list_inputs = []
         list_agent_ids = []
         total_seq_l = inp_seq_l + tar_seq_l
@@ -196,31 +200,30 @@ class InputQuery:
             inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
             seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
 
-            # use a fixed origin in the agent abs positions
-            x_o, y_o = agent.abs_pos[offset] if offset >= 0 else (0, 0)
-            origin_rot = agent.rotation[offset] if offset != -1 else (0, 0, 0, 1)
-
             # trajectory with no sufficient points
             if len(agent.index_list) == 0:
                 continue
 
             # get start and end of trajectory and get its timesteps
             start, end = agent.index_list[0]
-            timesteps = list(agent.context.items())[start: end]
+            timesteps: list[tuple[str, AgentTimestep]] = list(agent.context.items())[start: end]
+
+            # use a fixed origin in the agent abs positions
+            x_o, y_o = timesteps[offset][1].x, timesteps[offset][1].y if offset >= 0 else (0, 0)
+            origin_rot = timesteps[offset][1].rot if offset != -1 else (0, 0, 0, 1)
 
             # traverse each timestep
             for s_index, (timestep_id, timestep) in enumerate(timesteps):
-                agent_neighbor_ids = self.dataloader.dataset['context'][timestep_id]['neighbors']
+                agent_neighbor_ids = self.dataloader.dataset.contexts[timestep_id].neighbors
 
                 for neighbor_id in agent_neighbor_ids:
                     neighbor: Agent = agents[neighbor_id]
-                    time_pos = neighbor.context.get(timestep_id)
                     neighbor_pos = neighbors_positions[neighbor_id]
 
                     if neighbor_pos >= N:
                         continue
 
-                    inputTensor[s_index, neighbor_pos, :] = get_features(neighbor, time_pos, x_o, y_o, origin_rot)
+                    inputTensor[s_index, neighbor_pos, :] = get_features(neighbor, timestep_id, x_o, y_o, origin_rot)
                     inputMask[s_index, neighbor_pos] = 0
 
             inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask,

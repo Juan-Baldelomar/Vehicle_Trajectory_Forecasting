@@ -1,4 +1,5 @@
 
+from Dataset import AgentTimestep
 import numpy as np
 
 
@@ -9,30 +10,15 @@ class Agent:
         self.agent_id = agent_id
         self.map_name = None
         self.scene_token = None
-
-        self.abs_pos = []           # list of coordinates in the world frame (2d) (sequence)
-        self.ego_pos = []           # position of the ego vehicle, the one with the cameras
-        self.rotation = []          # list of rotation parametrized as a quaternion
-        self.ego_rotation = []      # list of rotations of ego vehicle
-        self.speed = []             # list of scalar
-        self.accel = []             # list scalar
-        self.heading_rate = []      # list scalar
         self.context = {}           # dictionary of ids of context-scenes.
-        self.cont_av_pos = 0        # int that indicates the next available position for the context dictionary
         self.index_list = []        # list of indexes that indicate the start and end of the multiple trajectories that can be obtained
                                     # from the same agent
 
-    def add_observation(self, t_context, t_abs_pos, t_rotation, t_speed, t_accel, t_heading_rate, t_ego_pos, t_ego_rotation):
-        self.context[t_context] = self.cont_av_pos
-        self.abs_pos.append(t_abs_pos)
-        self.ego_pos.append(t_ego_pos)
-        self.rotation.append(t_rotation)
-        self.ego_rotation.append(t_ego_rotation)
-        self.speed.append(t_speed)
-        self.accel.append(t_accel)
-        self.heading_rate.append(t_heading_rate)
+    def add_observation(self, t_context, t_x, t_y, t_rotation, t_speed, t_accel,
+                        t_heading_rate, t_ego_pos_x, t_ego_pos_y, t_ego_rotation):
 
-        self.cont_av_pos += 1
+        self.context[t_context] = AgentTimestep(t_x, t_y, t_rotation, t_speed, t_accel,
+                                                t_heading_rate, t_ego_pos_x, t_ego_pos_y, t_ego_rotation)
 
     def plotMasks(self, maps: dict, height=200, width=200):
         """
@@ -100,7 +86,7 @@ class Agent:
             context = Agent.context_dict[key]
 
             # traverse all neighbors and add the ones that are not yet
-            for neighbor_id in context['neighbors']:
+            for neighbor_id in context.neighbors:
                 if neighbors.get(neighbor_id) is None:
                     neighbors[neighbor_id] = pos_available
                     pos_available += 1

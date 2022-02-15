@@ -3,6 +3,7 @@ import numpy as np
 from nuscenes_dataloader import NuscenesLoader
 from InputQuery import InputQuery
 from InputQuery import verifyNan
+from InputQuery import process_nans
 import dataloader as dl
 
 
@@ -29,13 +30,16 @@ inputQuery = InputQuery(nuscenes_loader)
 cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7)
 agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7)
 
+process_nans(cubes)
+process_nans(agent_cubes)
+
 verifyNan(cubes, ids)
 verifyNan(agent_cubes, agent_ids)
 
 final_cubes = cubes + agent_cubes
 dl.save_pkl_data(final_cubes, 'nusc_inps.pkl')
 
-nuscenes_loader.nuscenes.get('sample_annotation', '67359ca5094147f3b3b210d406873407')
+#nuscenes_loader.nuscenes.get('sample_annotation', '67359ca5094147f3b3b210d406873407')
 
 # count scenes that do have neighbors with a trajectory to forecast
 # count = 0
