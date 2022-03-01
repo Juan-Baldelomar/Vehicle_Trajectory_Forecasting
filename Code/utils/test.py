@@ -1,7 +1,7 @@
 import numpy as np
 
 from nuscenes_dataloader import NuscenesLoader
-from InputQuery import InputQuery
+from InputQuery import *
 from InputQuery import verifyNan
 from InputQuery import process_nans
 import dataloader as dl
@@ -23,21 +23,27 @@ version = 'v1.0-trainval'
 data_name = 'train'
 #data_name = 'mini_train'
 
-nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=False, version=version, data_name=data_name)
+nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=False)
 
 inputQuery = InputQuery(nuscenes_loader)
 
-cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7)
-agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7)
+matrixes, ids = inputQuery.get_single_Input(7, 8, 7)
+#process_single_nans(matrixes)
+#contains_nans(matrixes)
 
-process_nans(cubes)
-process_nans(agent_cubes)
+# cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7)
+# agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7)
+#
+# process_nans(cubes)
+# process_nans(agent_cubes)
+#
+# verifyNan(cubes, ids)
+# verifyNan(agent_cubes, agent_ids)
 
-verifyNan(cubes, ids)
-verifyNan(agent_cubes, agent_ids)
+#final_cubes = cubes + agent_cubes
 
-final_cubes = cubes + agent_cubes
-dl.save_pkl_data(final_cubes, 'nusc_inps.pkl')
+#dl.save_pkl_data(matrixes, 'nusc_inps.pkl')
+
 
 #nuscenes_loader.nuscenes.get('sample_annotation', '67359ca5094147f3b3b210d406873407')
 

@@ -1,6 +1,7 @@
 
 from Dataset import AgentTimestep
 import numpy as np
+from pyquaternion import Quaternion
 
 
 class Agent:
@@ -10,7 +11,7 @@ class Agent:
         self.agent_id = agent_id
         self.map_name = None
         self.scene_token = None
-        self.context = {}           # dictionary of ids of context-scenes.
+        self.context = {}           # dictionary of ids of context-scenes (TimeSteps).
         self.index_list = []        # list of indexes that indicate the start and end of the multiple trajectories that can be obtained
                                     # from the same agent
 
@@ -124,5 +125,27 @@ class Agent:
                     matrix[i, j, 1] = y - y_o
 
         return matrix
+
+    def get_features(self, timestep, origin_timestep=None, use_ego=True):
+        x_o, y_o, origin_rot = 0, 0, (0, 0, 0, 1)
+        if origin_timestep is not None:
+            if use_ego:
+                x_o = self.context[origin_timestep].ego_pos_x
+                y_o = self.context[origin_timestep].ego_pos_y
+                origin_rot = self.context[origin_timestep].ego_rot
+            else:
+                x_o = self.context[origin_timestep].x
+                y_o = self.context[origin_timestep].y
+                origin_rot = self.context[origin_timestep].rot
+
+        agent_time_step = self.context[timestep]
+        x_pos = agent_time_step.x - x_o
+        y_pos = agent_time_step.y - y_o
+        vel = agent_time_step.speed
+        acc = agent_time_step.accel
+        rel_rot = Quaternion(origin_rot).inverse * Quaternion(agent_time_step.rot)
+        yaw, _, _ = rel_rot.yaw_pitch_roll
+        yaw = yaw  # in radians
+        return x_pos, y_pos, yaw, vel, acc
 
 

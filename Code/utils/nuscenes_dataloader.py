@@ -68,7 +68,7 @@ class NuscenesLoader(Loader):
     """
 
     def __init__(self, DATAROOT='/data/sets/nuscenes', pickle=True, pickle_filename='/data/sets/nuscenes/pickle/nuscenes_data.pkl',
-                 version='v1.0-mini', data_name='mini_train', verbose=True, rel_offset=10):
+                 version='v1.0-mini', data_name='mini_train', loadMap=True, verbose=True, rel_offset=10):
 
         # parent constructor
         super(NuscenesLoader, self).__init__(DATAROOT, verbose)
@@ -81,12 +81,13 @@ class NuscenesLoader(Loader):
         self.helper = None
 
         # nuscenes map expansion attributes
-        self.maps = {
-            'singapore-onenorth': NuScenesMap(dataroot=DATAROOT, map_name='singapore-onenorth'),
-            'singapore-hollandvillage': NuScenesMap(dataroot=DATAROOT, map_name='singapore-hollandvillage'),
-            'singapore-queenstown': NuScenesMap(dataroot=DATAROOT, map_name='singapore-queenstown'),
-            'boston-seaport': NuScenesMap(dataroot=DATAROOT, map_name='boston-seaport')
-        }
+        if loadMap:
+            self.maps = {
+                'singapore-onenorth': NuScenesMap(dataroot=DATAROOT, map_name='singapore-onenorth'),
+                'singapore-hollandvillage': NuScenesMap(dataroot=DATAROOT, map_name='singapore-hollandvillage'),
+                'singapore-queenstown': NuScenesMap(dataroot=DATAROOT, map_name='singapore-queenstown'),
+                'boston-seaport': NuScenesMap(dataroot=DATAROOT, map_name='boston-seaport')
+            }
 
         # flag to indicate if data can be loaded from pickle files
         pickle_ok: bool = os.path.isfile(pickle_filename)

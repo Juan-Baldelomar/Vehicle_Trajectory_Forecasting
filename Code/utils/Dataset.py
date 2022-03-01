@@ -43,6 +43,15 @@ class EgoVehicle:
         if self.ego_steps.get(step_id) is None:
             self.ego_steps[step_id] = ego_step
 
+    def get_neighbors(self, context_pool):
+        neighbors_across_time = set()
+        for timestep_id, ego_step in self.ego_steps.items():
+            for neighbor in context_pool[timestep_id].neighbors:
+                neighbors_across_time.add(neighbor)
+
+        return neighbors_across_time
+
+
 
 class Dataset:
     def __init__(self):
