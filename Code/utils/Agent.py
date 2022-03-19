@@ -11,7 +11,7 @@ class Agent:
         self.agent_id = agent_id
         self.map_name = None
         self.scene_token = None
-        self.context = {}           # dictionary of ids of context-scenes (TimeSteps).
+        self.context = {}           # dictionary of context-scenes, the form  {id_timeste : AgentTimeStep}.
         self.index_list = []        # list of indexes that indicate the start and end of the multiple trajectories that can be obtained
                                     # from the same agent
 
@@ -29,7 +29,6 @@ class Agent:
         :param width:  width of the bitmap
         :return: None
         """
-
         # get map
         map = maps[self.map_name]
 
@@ -54,7 +53,6 @@ class Agent:
         :param width:  width of the bitmap
         :return: list of bitmaps (each mask contains 2 bitmaps)
         """
-
         # get map
         map = maps[self.map_name]
 

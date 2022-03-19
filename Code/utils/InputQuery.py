@@ -91,19 +91,6 @@ def contains_nans(matrixes):
     return False
 
 
-# get input features of an agent
-def get_features(agent: Agent, step_id, x_o=0, y_o=0, origin_rot=(0, 0, 0, 1)):
-    agent_time_step : AgentTimestep = agent.context[step_id]
-    x_pos = agent_time_step.x - x_o
-    y_pos = agent_time_step.y - y_o
-    vel = agent_time_step.speed
-    acc = agent_time_step.accel
-    rel_rot = Quaternion(origin_rot).inverse * Quaternion(agent_time_step.rot)
-    yaw, _, _ = rel_rot.yaw_pitch_roll
-    yaw = yaw               # in radians
-    return x_pos, y_pos, yaw, vel, acc
-
-
 def split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N):
     # split trajectories into input and target
     inp, tar = inputTensor[:inp_seq_l, :, :], inputTensor[inp_seq_l - 1:, :, :]
@@ -288,7 +275,7 @@ class InputQuery:
 
     def get_single_Input(self, inp_seq_l, tar_seq_l, offset=-1):
         # get indexes of the sequences
-        self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l)
+        self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l, mode='overlap', overlap_points=tar_seq_l)
 
         # useful variables
         ego_vehicles: dict = self.dataloader.dataset.ego_vehicles
@@ -307,23 +294,21 @@ class InputQuery:
                 if len(neighbor.index_list) == 0:
                     continue
 
-                # init inputs
-                inputTensor = np.zeros((total_seq_l, 5))
-                inputMask = np.zeros(total_seq_l)
+                for start, end in neighbor.index_list:
+                    # init inputs
+                    inputTensor = np.zeros((total_seq_l, 5))
+                    inputMask = np.zeros(total_seq_l)
+                    # timesteps that will be traversed
+                    timesteps = list(neighbor.context.keys())[start: end]
+                    origin_offset = timesteps[offset] if offset != -1 else None
 
-                # start and end of the sequence
-                start, end = neighbor.index_list[0]
-                # timesteps that will be traversed
-                timesteps = list(neighbor.context.keys())[start: end]
-                origin_offset = timesteps[offset] if offset != -1 else None
+                    for s_index, timestep_id in enumerate(timesteps):
+                        inputTensor[s_index, :] = neighbor.get_features(timestep_id, origin_offset)
 
-                for s_index, timestep_id in enumerate(timesteps):
-                    inputTensor[s_index, :] = neighbor.get_features(timestep_id, origin_offset)
-
-                # split trajectories into input and target
-                inp, inp_mask, tar, tar_mask = split_single_input(inputTensor, inputMask, inp_seq_l, tar_seq_l)
-                list_inputs.append((inp, inp_mask, tar, tar_mask))
-                list_agent_ids.append(neighbor_id)
+                    # split trajectories into input and target
+                    inp, inp_mask, tar, tar_mask = split_single_input(inputTensor, inputMask, inp_seq_l, tar_seq_l)
+                    list_inputs.append((inp, inp_mask, tar, tar_mask, inputTensor))
+                    list_agent_ids.append(neighbor_id)
 
         # return inputs
         return list_inputs, list_agent_ids
