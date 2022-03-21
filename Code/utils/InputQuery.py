@@ -160,13 +160,11 @@ class InputQuery:
     def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1):
         # get indexes of the sequences
         self.get_indexes(inp_seq_l + tar_seq_l)
-
         # useful variables
         ego_vehicles: dict = self.dataloader.dataset.ego_vehicles
         agents: dict = self.dataloader.dataset.agents
         list_inputs = []
         list_agent_ids = []
-
         # max sequence lenght
         total_seq_l = inp_seq_l + tar_seq_l
 
@@ -179,53 +177,47 @@ class InputQuery:
             neighbor_pos_map = {}
             available_pos = 0
 
-            # verify if scene is eligible for sequence prediction
-            if len(ego_vehicle.indexes) == 0:
-                continue
+            for start, end in ego_vehicle.indexes:
+                # timesteps that will be traversed, timestep[0] = key, timestep[1] = egostep object
+                timesteps = list(ego_vehicle.ego_steps.items())[start: end]
+                origin_timestep = timesteps[offset][1] if offset != -1 else None
 
-            # start and end of the sequence
-            start, end = ego_vehicle.indexes[0]
-            # timesteps that will be traversed
-            timesteps = list(ego_vehicle.ego_steps.items())[start: end]
-            origin_offset = timesteps[offset][0] if offset != -1 else None
+                for s_index, (timestep_id, timestep) in enumerate(timesteps):
+                    # neighbors IDs in each timestep
+                    neighbors = self.dataloader.dataset.contexts[timestep_id].neighbors
 
-            for s_index, (timestep_id, timestep) in enumerate(timesteps):
-                # neighbors IDs in each timestep
-                neighbors = self.dataloader.dataset.contexts[timestep_id].neighbors
+                    for neighbor in neighbors:
 
-                for neighbor in neighbors:
+                        # GET neighbors position in the input. Verify if neighbor already exists
+                        if neighbor_pos_map.get(neighbor) is None:
+                            # assign position in the inputTensor to the neighbor
+                            neighbor_pos_map[neighbor] = available_pos
+                            available_pos += 1
 
-                    # GET neighbors position in the input. Verify if neighbor already exists
-                    if neighbor_pos_map.get(neighbor) is None:
-                        # assign position in the inputTensor to the neighbor
-                        neighbor_pos_map[neighbor] = available_pos
-                        available_pos += 1
+                        # retrive neighbor position
+                        neighbor_pos = neighbor_pos_map[neighbor]
 
-                    # retrive neighbor position
-                    neighbor_pos = neighbor_pos_map[neighbor]
+                        # not more space in the inputTensor for the neighbor, so ignore the neighbor
+                        if neighbor_pos >= N:
+                            continue
 
-                    # not more space in the inputTensor for the neighbor, so ignore the neighbor
-                    if neighbor_pos >= N:
-                        continue
+                        # retrieve agent
+                        agent: Agent = agents[neighbor]
+                        # get features of the agent in this timestep
+                        inputTensor[s_index, neighbor_pos, :] = agent.get_features(timestep_id, origin_timestep)
+                        # turn off mask in this position
+                        inputMask[s_index, neighbor_pos] = 0
 
-                    # retrieve agent
-                    agent: Agent = agents[neighbor]
-                    # get features of the agent in this timestep
-                    inputTensor[s_index, neighbor_pos, :] = agent.get_features(timestep_id, origin_offset)
-                    # turn off mask in this position
-                    inputMask[s_index, neighbor_pos] = 0
-
-            # split trajectories into input and target
-            inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
-            list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask))
-            list_agent_ids.append(ego_id)
+                # split trajectories into input and target
+                inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
+                list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
+                list_agent_ids.append(ego_id)
 
         # return inputs
         return list_inputs, list_agent_ids
 
     def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1):
         self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l)
-
         # useful variables
         agents: dict = self.dataloader.dataset.agents
         list_inputs = []
@@ -234,40 +226,35 @@ class InputQuery:
 
         for agent_id in agents.keys():
             agent = agents[agent_id]
-            neighbors_positions = agent.get_neighbors(0)
 
             # input cubes for agent
             inputTensor = np.zeros((total_seq_l, N, 5))
             inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
             seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
 
-            # trajectory with no sufficient points
-            if len(agent.index_list) == 0:
-                continue
+            for i, (start, end) in enumerate(agent.index_list):
+                neighbors_positions = agent.get_neighbors(i)
+                timesteps = list(agent.context.items())[start: end]
+                origin_timestep = timesteps[offset][1] if offset != -1 else None
+                # traverse each timestep
+                for s_index, (timestep_id, timestep) in enumerate(timesteps):
+                    agent_neighbor_ids = self.dataloader.dataset.contexts[timestep_id].neighbors
 
-            # get start and end of trajectory and get its timesteps
-            start, end = agent.index_list[0]
-            timesteps = list(agent.context.items())[start: end]
-            origin_offset = timesteps[offset][0] if offset != -1 else None
+                    for neighbor_id in agent_neighbor_ids:
+                        neighbor: Agent = agents[neighbor_id]
+                        neighbor_pos = neighbors_positions[neighbor_id]
 
-            # traverse each timestep
-            for s_index, (timestep_id, timestep) in enumerate(timesteps):
-                agent_neighbor_ids = self.dataloader.dataset.contexts[timestep_id].neighbors
+                        if neighbor_pos >= N:
+                            continue
 
-                for neighbor_id in agent_neighbor_ids:
-                    neighbor: Agent = agents[neighbor_id]
-                    neighbor_pos = neighbors_positions[neighbor_id]
+                        inputTensor[s_index, neighbor_pos, :] = neighbor.get_features(timestep_id, origin_timestep)
+                        inputMask[s_index, neighbor_pos] = 0
 
-                    if neighbor_pos >= N:
-                        continue
+                inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask,
+                                                                                     inp_seq_l, tar_seq_l, N)
 
-                    inputTensor[s_index, neighbor_pos, :] = neighbor.get_features(timestep_id, origin_offset)
-                    inputMask[s_index, neighbor_pos] = 0
-
-            inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask,
-                                                                                 inp_seq_l, tar_seq_l, N)
-            list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask))
-            list_agent_ids.append(agent_id)
+                list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
+                list_agent_ids.append(agent_id)
 
         # close for agent_id in agent.keys()
 

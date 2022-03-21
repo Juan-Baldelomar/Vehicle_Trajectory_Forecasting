@@ -11,7 +11,7 @@ class Agent:
         self.agent_id = agent_id
         self.map_name = None
         self.scene_token = None
-        self.context = {}           # dictionary of context-scenes, the form  {id_timeste : AgentTimeStep}.
+        self.context = {}           # dictionary of context-scenes, the form  {id_timestep : AgentTimeStep}.
         self.index_list = []        # list of indexes that indicate the start and end of the multiple trajectories that can be obtained
                                     # from the same agent
 
@@ -128,13 +128,13 @@ class Agent:
         x_o, y_o, origin_rot = 0, 0, (0, 0, 0, 1)
         if origin_timestep is not None:
             if use_ego:
-                x_o = self.context[origin_timestep].ego_pos_x
-                y_o = self.context[origin_timestep].ego_pos_y
-                origin_rot = self.context[origin_timestep].ego_rot
+                x_o = origin_timestep.x
+                y_o = origin_timestep.y
+                origin_rot = origin_timestep.rot
             else:
-                x_o = self.context[origin_timestep].x
-                y_o = self.context[origin_timestep].y
-                origin_rot = self.context[origin_timestep].rot
+                x_o = origin_timestep.x
+                y_o = origin_timestep.y
+                origin_rot = origin_timestep.rot
 
         agent_time_step = self.context[timestep]
         x_pos = agent_time_step.x - x_o
