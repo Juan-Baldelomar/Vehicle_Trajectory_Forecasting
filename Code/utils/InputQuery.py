@@ -169,15 +169,15 @@ class InputQuery:
         total_seq_l = inp_seq_l + tar_seq_l
 
         for ego_id, ego_vehicle in ego_vehicles.items():
-            inputTensor = np.zeros((total_seq_l, N, 5))   # (seq, neighbors, features)
-            inputMask = np.ones((total_seq_l, N))         # at the beginning, all neighbors have padding
-            seq_inputMask = np.zeros(total_seq_l)         # at the beginning, all sequence elements are padded
-
-            # neighbor map to store which position in the inputTensor corresponds to each neighbor
-            neighbor_pos_map = {}
-            available_pos = 0
-
             for start, end in ego_vehicle.indexes:
+                inputTensor = np.zeros((total_seq_l, N, 5))  # (seq, neighbors, features)
+                inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
+                seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
+
+                # neighbor map to store which position in the inputTensor corresponds to each neighbor
+                neighbor_pos_map = {}
+                available_pos = 0
+
                 # timesteps that will be traversed, timestep[0] = key, timestep[1] = egostep object
                 timesteps = list(ego_vehicle.ego_steps.items())[start: end]
                 origin_timestep = timesteps[offset][1] if offset != -1 else None
@@ -227,17 +227,18 @@ class InputQuery:
         for agent_id in agents.keys():
             agent = agents[agent_id]
 
-            # input cubes for agent
-            inputTensor = np.zeros((total_seq_l, N, 5))
-            inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
-            seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
-
             for i, (start, end) in enumerate(agent.index_list):
+                # input cubes for agent
+                inputTensor = np.zeros((total_seq_l, N, 5))
+                inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
+                seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
+
                 neighbors_positions = agent.get_neighbors(i)
-                timesteps = list(agent.context.items())[start: end]
+                timesteps = list(agent.timesteps.items())[start: end]
                 origin_timestep = timesteps[offset][1] if offset != -1 else None
                 # traverse each timestep
                 for s_index, (timestep_id, timestep) in enumerate(timesteps):
+                    # get neighbor ids in that specific timestep
                     agent_neighbor_ids = self.dataloader.dataset.contexts[timestep_id].neighbors
 
                     for neighbor_id in agent_neighbor_ids:
@@ -286,7 +287,7 @@ class InputQuery:
                     inputTensor = np.zeros((total_seq_l, 5))
                     inputMask = np.zeros(total_seq_l)
                     # timesteps that will be traversed
-                    timesteps = list(neighbor.context.keys())[start: end]
+                    timesteps = list(neighbor.timesteps.keys())[start: end]
                     origin_offset = timesteps[offset] if offset != -1 else None
 
                     for s_index, timestep_id in enumerate(timesteps):

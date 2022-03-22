@@ -11,15 +11,15 @@ class Agent:
         self.agent_id = agent_id
         self.map_name = None
         self.scene_token = None
-        self.context = {}           # dictionary of context-scenes, the form  {id_timestep : AgentTimeStep}.
+        self.timesteps = {}           # dictionary of context-scenes, the form  {id_timestep : AgentTimeStep}.
         self.index_list = []        # list of indexes that indicate the start and end of the multiple trajectories that can be obtained
                                     # from the same agent
 
     def add_observation(self, t_context, t_x, t_y, t_rotation, t_speed, t_accel,
                         t_heading_rate, t_ego_pos_x, t_ego_pos_y, t_ego_rotation):
 
-        self.context[t_context] = AgentTimestep(t_x, t_y, t_rotation, t_speed, t_accel,
-                                                t_heading_rate, t_ego_pos_x, t_ego_pos_y, t_ego_rotation)
+        self.timesteps[t_context] = AgentTimestep(t_x, t_y, t_rotation, t_speed, t_accel,
+                                                  t_heading_rate, t_ego_pos_x, t_ego_pos_y, t_ego_rotation)
 
     def plotMasks(self, maps: dict, height=200, width=200):
         """
@@ -76,7 +76,7 @@ class Agent:
             return None
 
         start, end = self.index_list[kth_traj]
-        keys = list(self.context.keys())
+        keys = list(self.timesteps.keys())
         neighbors = {}
         pos_available = 0
 
@@ -98,7 +98,7 @@ class Agent:
 
         traj_size = end - start
         matrix = np.zeros((len(neighbors_positions), traj_size, 2))
-        time_steps = list(self.context.keys())
+        time_steps = list(self.timesteps.keys())
 
         # use a fixed origin in the agent abs positions
         if offset_origin >= 0:
@@ -115,7 +115,7 @@ class Agent:
 
             for neighbor_id in agent_neighbor_ids:
                 neighbor: Agent = agents[neighbor_id]
-                time_pos = neighbor.context.get(context_key)
+                time_pos = neighbor.timesteps.get(context_key)
                 if time_pos is not None:
                     x, y = neighbor.abs_pos[time_pos]
                     i = neighbors_positions[neighbor_id]
@@ -124,7 +124,7 @@ class Agent:
 
         return matrix
 
-    def get_features(self, timestep, origin_timestep=None, use_ego=True):
+    def get_features(self, timestep_id, origin_timestep=None, use_ego=True):
         x_o, y_o, origin_rot = 0, 0, (0, 0, 0, 1)
         if origin_timestep is not None:
             if use_ego:
@@ -136,7 +136,7 @@ class Agent:
                 y_o = origin_timestep.y
                 origin_rot = origin_timestep.rot
 
-        agent_time_step = self.context[timestep]
+        agent_time_step = self.timesteps[timestep_id]
         x_pos = agent_time_step.x - x_o
         y_pos = agent_time_step.y - y_o
         vel = agent_time_step.speed

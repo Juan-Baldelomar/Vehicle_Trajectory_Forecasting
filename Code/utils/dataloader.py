@@ -114,7 +114,7 @@ class Loader:
 
         """
         for key, agent in self.dataset.agents.items():
-            agent_datasize = len(agent.context)
+            agent_datasize = len(agent.timesteps)
 
             if agent_datasize - skip >= size:
                 if mode == 'overlap':
