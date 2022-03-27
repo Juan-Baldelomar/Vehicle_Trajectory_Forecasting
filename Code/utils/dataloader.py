@@ -51,6 +51,7 @@ class Loader:
         #self.dataset: dict = {'agents': {}, 'ego_vehicles': {}}
         self.dataset = Dataset()
         self.verbose = verbose
+        self.maps = None
 
     def load_data(self):
         """ method to load data and should be called in the constructor"""

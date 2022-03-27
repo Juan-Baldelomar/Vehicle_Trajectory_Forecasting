@@ -145,8 +145,10 @@ class NuscenesLoader(Loader):
         for scene in scenes:
             # read token and use it as id for ego_vehicle
             token = scene['token']
-            self.dataset.add_ego_vehicle(token, EgoVehicle(token))
+            # get the map_name of the agent
+            location = self.nuscenes.get('log', scene['log_token'])['location']
 
+            self.dataset.add_ego_vehicle(token, EgoVehicle(token, location))
             # read its first sample token
             sample_token = scene['first_sample_token']
 

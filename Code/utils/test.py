@@ -34,10 +34,10 @@ data_name = 'train'
 #dl.save_pkl_data(matrixes, 'nusc_inps.pkl')
 
 # ------------------------------------------------------------ multiple agents by scene ------------------------------------------------------------------
-nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=False)
+nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=True)
 inputQuery = InputQuery(nuscenes_loader)
 
-cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7)
+cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=False)
 agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7)
 
 process_nans(cubes)

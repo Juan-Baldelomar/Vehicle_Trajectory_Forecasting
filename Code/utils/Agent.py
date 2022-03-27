@@ -2,6 +2,7 @@
 from Dataset import AgentTimestep
 import numpy as np
 from pyquaternion import Quaternion
+import matplotlib.pyplot as plt
 
 
 class Agent:
@@ -69,6 +70,14 @@ class Agent:
             masks_list.append(map_mask)
 
         return masks_list
+
+    def get_map(self, maps: dict, name, x_start, y_start, x_offset=100, y_offset=100, dpi=25.6):
+        nusc_map = maps[self.map_name]
+        my_patch = (x_start, y_start, x_start + x_offset, y_start + y_offset)
+        fig, ax = nusc_map.render_map_patch(my_patch, ['lane', 'lane_divider', 'road_divider', 'drivable_area'], \
+                                            figsize=(10, 10), render_egoposes_range=False, render_legend=False, alpha=0.55)
+        fig.savefig(name, format="png", dpi=dpi)
+        plt.close(fig)
 
     # return list of unique neighbors through all the trajectory
     def get_neighbors(self, kth_traj):

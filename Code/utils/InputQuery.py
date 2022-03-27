@@ -157,19 +157,18 @@ class InputQuery:
                     ego_vehicle.indexes.append((tmp_start, tmp_start + L))
                     break
 
-    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1):
+    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=True):
         # get indexes of the sequences
         self.get_indexes(inp_seq_l + tar_seq_l)
-        # useful variables
+        # USEFUL VARIABLES
         ego_vehicles: dict = self.dataloader.dataset.ego_vehicles
         agents: dict = self.dataloader.dataset.agents
-        list_inputs = []
-        list_agent_ids = []
+        list_inputs, list_agent_ids = [], []
         # max sequence lenght
         total_seq_l = inp_seq_l + tar_seq_l
 
         for ego_id, ego_vehicle in ego_vehicles.items():
-            for start, end in ego_vehicle.indexes:
+            for i, (start, end) in enumerate(ego_vehicle.indexes):
                 inputTensor = np.zeros((total_seq_l, N, 5))  # (seq, neighbors, features)
                 inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
@@ -182,12 +181,18 @@ class InputQuery:
                 timesteps = list(ego_vehicle.ego_steps.items())[start: end]
                 origin_timestep = timesteps[offset][1] if offset != -1 else None
 
+                # get map in file
+                if self.dataloader.maps is not None and get_maps:
+                    name = 'maps/' + ego_id + '_' + str(i) + '.png'
+                    x_start = max(timesteps[offset][1].x - 50, 0)
+                    y_start = max(timesteps[offset][1].y - 50, 0)
+                    ego_vehicle.get_map(self.dataloader.maps, name, x_start, y_start, dpi=51.2)
+
                 for s_index, (timestep_id, timestep) in enumerate(timesteps):
                     # neighbors IDs in each timestep
                     neighbors = self.dataloader.dataset.contexts[timestep_id].neighbors
 
                     for neighbor in neighbors:
-
                         # GET neighbors position in the input. Verify if neighbor already exists
                         if neighbor_pos_map.get(neighbor) is None:
                             # assign position in the inputTensor to the neighbor
@@ -211,31 +216,39 @@ class InputQuery:
                 # split trajectories into input and target
                 inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
                 list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
-                list_agent_ids.append(ego_id)
+                list_agent_ids.append(ego_id + '_' + str(i))
 
         # return inputs
         return list_inputs, list_agent_ids
 
-    def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1):
+    def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=True):
         self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l)
         # useful variables
         agents: dict = self.dataloader.dataset.agents
-        list_inputs = []
-        list_agent_ids = []
+        list_inputs, list_agent_ids = [], []
         total_seq_l = inp_seq_l + tar_seq_l
 
         for agent_id in agents.keys():
             agent = agents[agent_id]
-
+            # traverse trajectories for agent
             for i, (start, end) in enumerate(agent.index_list):
                 # input cubes for agent
                 inputTensor = np.zeros((total_seq_l, N, 5))
                 inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
 
+                # get neighbors and timesteps of agent
                 neighbors_positions = agent.get_neighbors(i)
                 timesteps = list(agent.timesteps.items())[start: end]
                 origin_timestep = timesteps[offset][1] if offset != -1 else None
+
+                # get maps if necessary
+                if self.dataloader.maps is not None and get_maps:
+                    name = 'maps/agents/' + agent.agent_id + '_' + str(i) + '.png'
+                    x_start = max(timesteps[offset][1].x - 50, 0)
+                    y_start = max(timesteps[offset][1].y - 50, 0)
+                    agent.get_map(self.dataloader.maps, name, x_start, y_start, dpi=51.2)
+
                 # traverse each timestep
                 for s_index, (timestep_id, timestep) in enumerate(timesteps):
                     # get neighbor ids in that specific timestep

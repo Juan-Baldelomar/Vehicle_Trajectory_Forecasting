@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+
 
 class AgentTimestep:
     def __init__(self, x, y, rot, speed, accel, heading_rate, ego_pos_x, ego_pos_y, ego_rot):
@@ -34,9 +36,10 @@ class Context:
 
 
 class EgoVehicle:
-    def __init__(self, ego_id):
+    def __init__(self, ego_id, map_name=None):
         self.ego_id = ego_id
         self.indexes = []
+        self.map_name = map_name
         self.ego_steps = {}             # dict of steps in time
 
     def add_step(self, step_id, ego_step):
@@ -50,6 +53,40 @@ class EgoVehicle:
                 neighbors_across_time.add(neighbor)
 
         return neighbors_across_time
+
+    def getMasks(self, maps: dict, yaw=0, height=200, width=200):
+        """
+         function to get the bitmaps of an agent's positions
+        :param maps: maps dictionary
+        :param yaw: angle of rotation of the masks
+        :param height: height of the bitmap
+        :param width:  width of the bitmap
+        :return: list of bitmaps (each mask contains 2 bitmaps)
+        """
+        # get map
+        map = maps[self.map_name]
+
+        masks_list = []
+
+        # traverse agents positions
+        for pos in self.abs_pos:
+            x, y = pos[0], pos[1]
+            patch_box = (x, y, height, width)
+            patch_angle = yaw  # Default orientation (yaw=0) where North is up
+            layer_names = ['drivable_area', 'walkway']
+            canvas_size = (1000, 1000)
+            map_mask = map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
+            masks_list.append(map_mask)
+
+        return masks_list
+
+    def get_map(self, maps: dict, name, x_start, y_start, x_offset=100, y_offset=100, dpi=25.6):
+        nusc_map = maps[self.map_name]
+        my_patch = (x_start, y_start, x_start + x_offset, y_start + y_offset)
+        fig, ax = nusc_map.render_map_patch(my_patch, ['lane', 'lane_divider', 'road_divider', 'drivable_area'], \
+                                            figsize=(10, 10), render_egoposes_range=False, render_legend=False, alpha=0.55)
+        fig.savefig(name, format="png", dpi=dpi)
+        plt.close(fig)
 
 
 
