@@ -23,42 +23,14 @@ from nuscenes.map_expansion.map_api import NuScenesMap
 from nuscenes.map_expansion import arcline_path_utils
 from nuscenes.map_expansion.bitmap import BitMap
 
+
 # -------------------------------------------------------------- NUSCENES LOADER CLASS -----------------------------------------------------------
-
-
 class NuscenesLoader(Loader):
     """
     NuscenesLoader CLASS
 
     * This class is the specific implementation for the loader of the nuscenes dataset
-    * self.dataset is a dictionary with the following attributes:
-        {
-           agents:{
-                <agent_key>:{
-                                abs_pos: [],                # list of coordinates in the world frame (2d)
-                                ego_pos: [],                # list of coordinates in the vehicle with the camera frame (2d)
-                                rotation: [],               # list of orientation of the annotation box parametrized as a quaternion
-                                ego_rotation: [],           # list of orientation of the ego_vehicle parametrized as a quaternion
-                                speed: [],                  # list of angular speed (scalar, defined from the second annotation of the instance
-                                                              not the first one)
-                                accel: [],                  # list of acceleration (scalar, defined from the third annotation of the instance
-                                heading_rate: [],
-                                context: [],                # list of context_ids, those ids point to anothe dictionary with relevan information
-                                                              of the context
-                            }
-                }
-           context:{
-                <context_key> (same as sample token) :
-                            {
-                                neighbors: []               # list of instance neighbors that are VEHICLES in the sample
-                                humans: []                  # list of pedestrians in the sample
-                                objects: []                 # list of objects in the sample
-                                map: str                    # map id of the sample
-                            }
-           }
-        }
-
-    * self.dataset dictionary should be filled with the implementarion of load_data()
+    * self.dataset is a Dataset object that should be filled with the implementarion of load_data()
 
     * IMPORTANT:
         1. a SCENE is made by several moments in time or time steps. This time steps are called SAMPLES.
@@ -168,6 +140,10 @@ class NuscenesLoader(Loader):
                 sample_token = sample['next']
 
     def load_data(self) -> dict:
+        """
+        this function traverses the agents in the nuscenes scheme and stores all the relevant information such as positions, rotations, etc.
+        :return: dictionary object  with agents and their information
+        """
         # list of the form <instance_token>_<sample_token>
         mini_train: list = get_prediction_challenge_split(self.data_name, dataroot=self.DATAROOT)
 

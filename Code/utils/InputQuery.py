@@ -157,7 +157,7 @@ class InputQuery:
                     ego_vehicle.indexes.append((tmp_start, tmp_start + L))
                     break
 
-    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=True):
+    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=False):
         # get indexes of the sequences
         self.get_indexes(inp_seq_l + tar_seq_l)
         # USEFUL VARIABLES
@@ -221,8 +221,8 @@ class InputQuery:
         # return inputs
         return list_inputs, list_agent_ids
 
-    def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=True):
-        self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l)
+    def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=False):
+        self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l, mode='overlap', overlap_points=tar_seq_l)
         # useful variables
         agents: dict = self.dataloader.dataset.agents
         list_inputs, list_agent_ids = [], []
@@ -242,12 +242,12 @@ class InputQuery:
                 timesteps = list(agent.timesteps.items())[start: end]
                 origin_timestep = timesteps[offset][1] if offset != -1 else None
 
-                # get maps if necessary
+                # GET MAPS IF ASKED
                 if self.dataloader.maps is not None and get_maps:
                     name = 'maps/agents/' + agent.agent_id + '_' + str(i) + '.png'
-                    x_start = max(timesteps[offset][1].x - 50, 0)
-                    y_start = max(timesteps[offset][1].y - 50, 0)
-                    agent.get_map(self.dataloader.maps, name, x_start, y_start, dpi=51.2)
+                    x_start = max(timesteps[offset][1].x - 100, 0)
+                    y_start = max(timesteps[offset][1].y - 100, 0)
+                    agent.get_map(self.dataloader.maps, name, x_start, y_start, x_offset=200, y_offset=200, dpi=51.2)
 
                 # traverse each timestep
                 for s_index, (timestep_id, timestep) in enumerate(timesteps):
