@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+import numpy as np
 
 nusc_ends = {'singapore-onenorth': (1500, 2000),
              'singapore-queenstown': (3200, 3500),
