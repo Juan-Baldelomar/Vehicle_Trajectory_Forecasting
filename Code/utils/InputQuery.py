@@ -157,59 +157,69 @@ class InputQuery:
                     ego_vehicle.indexes.append((tmp_start, tmp_start + L))
                     break
 
-    def get_egocentered_input(self, ego_vehicle, agents, total_seq_l, N, get_maps, seq_number=0, offset=-1):
+    def get_egocentered_input(self, ego_vehicle: EgoVehicle, agents, total_seq_l: int, N: int,
+                              seq_number=0, offset=-1, get_maps: str = None, path='maps'):
         """
         get input scene centered in a specific ego-vehicle timestep.
         :param ego_vehicle: ego-vehicle object target
         :param agents     : dictionary of agent objects that contain agent information
         :param total_seq_l: sequence length
         :param N          : number of neighbors
-        :param get_maps   : flag that indicates whether to retrieve the map of the scene or not
+        :param get_maps   : mode to get maps, default None
+        :param path       : flag that indicates whether to retrieve the map of the scene or not
         :param seq_number : ego-vehicles might contain large sequences, so we might be interested in get as many scenes as possible from them.
                             self.get_indexes should have been call, if not, assert will raise an error due to len(ego_vehicle.indexes) = 0
         :param offset     : offset int that indicates the index of the timestep to use as origin. If -1 none is taken
         :return           : InputTensor with shape (sequence, neighbors, features) and InputMask (sequence, neighbors) that masks neighbors that do not appear.
         """
-        assert (len(self.indexes) > 0)
+        assert (len(ego_vehicle.indexes) > 0)
 
         ego_id = ego_vehicle.ego_id
-        start, end = self.indexes[seq_number]
+        start, end = ego_vehicle.indexes[seq_number]
         inputTensor = np.zeros((total_seq_l, N, 5))  # (seq, neighbors, features)
         inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
-
-        # neighbor map to store which position in the inputTensor corresponds to each neighbor
-        neighbor_pos_map = {}
-        available_pos = 0
+        neigh_bitmaps = []
 
         # timesteps that will be traversed, timestep[0] = key, timestep[1] = egostep object
         timesteps = list(ego_vehicle.ego_steps.items())[start: end]
         origin_timestep = timesteps[offset][1] if offset != -1 else None
 
         # get map in file
-        if self.dataloader.maps is not None and get_maps:
-            name = 'maps/' + ego_id + '_' + str(seq_number) + '.png'
+        name = ego_id + '_' + str(seq_number) + '.png'
+        if self.dataloader.maps is not None and get_maps == 'semantic':
             x_start = max(timesteps[offset][1].x - 100, 0)
             y_start = max(timesteps[offset][1].y - 100, 0)
-            ego_vehicle.get_map(self.dataloader.maps, name, x_start, y_start, x_offset=200, y_offset=200, dpi=51.2)
+            ego_vehicle.get_map(self.dataloader.maps, path + '/' + name, x_start, y_start, x_offset=200, y_offset=200, dpi=51.2)
+        elif self.dataloader.maps is not None and get_maps == 'masks':
+            bitmaps = ego_vehicle.getMasks(self.dataloader.maps, origin_timestep, path, name)
+            neigh_bitmaps.append(bitmaps)
+
+        # get positions of neighbors in the InputTensor along the 2nd dimenstion (index=1).
+        # available positions start from 1 because ego vehicle occupies position 0.
+        all_neighbors = ego_vehicle.get_neighbors(self.dataloader.dataset.contexts)
+        neighbor_pos_map = [(neighbor, pos) for neighbor, pos in zip(all_neighbors, range(1, len(all_neighbors) + 1))]
+        neighbor_pos_map = dict(neighbor_pos_map)
+
+        # get BITMAPS for valid neighbors
+        for neighbor_id, pos in neighbor_pos_map.items():
+            if pos < N and get_maps == 'masks':
+                bitmaps = agents[neighbor_id].getMasks(self.dataloader.maps, origin_timestep, path, name)
+                neigh_bitmaps.append(bitmaps)
 
         for s_index, (timestep_id, timestep) in enumerate(timesteps):
+            # add ego vehicle timestep as input
+            inputTensor[s_index, 0, :3] = timestep.x, timestep.y, Quaternion(timestep.rot).yaw_pitch_roll[0]
+            inputMask[s_index, 0] = 0
+
             # neighbors IDs in each timestep
             neighbors = self.dataloader.dataset.contexts[timestep_id].neighbors
 
             for neighbor in neighbors:
-                # GET neighbors position in the input. Verify if neighbor already exists
-                if neighbor_pos_map.get(neighbor) is None:
-                    # assign position in the inputTensor to the neighbor
-                    neighbor_pos_map[neighbor] = available_pos
-                    available_pos += 1
-
                 # retrive neighbor position
                 neighbor_pos = neighbor_pos_map[neighbor]
-
                 # not more space in the inputTensor for the neighbor, so ignore the neighbor
                 if neighbor_pos >= N:
                     continue
-
                 # retrieve agent
                 agent: Agent = agents[neighbor]
                 # get features of the agent in this timestep
@@ -217,9 +227,9 @@ class InputQuery:
                 # turn off mask in this position
                 inputMask[s_index, neighbor_pos] = 0
 
-        return inputTensor, inputMask
+        return inputTensor, inputMask, np.array(neigh_bitmaps)
 
-    def get_agentcentered_input(self, agent, agents, total_seq_l, N, get_maps, seq_number=0, offset=-1):
+    def get_agentcentered_input(self, agent: Agent, agents, total_seq_l: int, N: int, get_maps: bool, seq_number=0, offset=-1):
         """
         get input scene centered in a specific ego-vehicle timestep.
         :param agent      : agent object target
@@ -240,13 +250,13 @@ class InputQuery:
         inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
 
         # get neighbors and timesteps of agent
-        neighbors_positions = agent.get_neighbors(i)
+        neighbors_positions = agent.get_neighbors(seq_number)
         timesteps = list(agent.timesteps.items())[start: end]
         origin_timestep = timesteps[offset][1] if offset != -1 else None
 
         # GET MAPS IF ASKED
         if self.dataloader.maps is not None and get_maps:
-            name = 'maps/agents/' + agent.agent_id + '_' + str(i) + '.png'
+            name = 'maps/agents/' + agent.agent_id + '_' + str(seq_number) + '.png'
             x_start = max(timesteps[offset][1].x - 100, 0)
             y_start = max(timesteps[offset][1].y - 100, 0)
             agent.get_map(self.dataloader.maps, name, x_start, y_start, x_offset=200, y_offset=200, dpi=51.2)
@@ -271,7 +281,7 @@ class InputQuery:
 
 # ---------------------------------------------------------------- FUNCTIONS TO BUILD INPUTS ----------------------------------------------------------------
 
-    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=False):
+    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps: str = None, path='maps'):
         # get indexes of the sequences
         self.get_indexes(inp_seq_l + tar_seq_l)
         # USEFUL VARIABLES
@@ -282,15 +292,18 @@ class InputQuery:
         total_seq_l = inp_seq_l + tar_seq_l
 
         for ego_id, ego_vehicle in ego_vehicles.items():
-            for i, (start, end) in enumerate(ego_vehicle.indexes):
+            for i, (_, _) in enumerate(ego_vehicle.indexes):
                 # get inputTensor and its mask centered in egovehicle
-                inputTensor, inputMask = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, get_maps, i, offset)
+                inputTensor, inputMask, bitmaps = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, i, offset, get_maps, path)
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
 
                 # split trajectories into input and target
                 inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
                 list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
-                list_agent_ids.append(ego_id + '_' + str(i))
+                # save bitmaps and store name
+                name = ego_id + '_' + str(i) + '.png'
+                list_agent_ids.append(name)
+                np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
 
         # return inputs
         return list_inputs, list_agent_ids

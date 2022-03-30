@@ -37,21 +37,22 @@ data_name = 'train'
 nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=True)
 inputQuery = InputQuery(nuscenes_loader)
 
-store = True
+store = False
 
-cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=False)
-agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=False)
+cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps='masks', path='maps/masks')
+#agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=False)
 
 if store:
+    pass
     # remove nans
     #process_nans(cubes)
     #process_nans(agent_cubes)
     #verifyNan(cubes, ids)
     #verifyNan(agent_cubes, agent_ids)
     # store information
-    final_cubes = cubes + agent_cubes
-    final_ids = ids + agent_ids
-    dl.save_pkl_data({'inputs': final_cubes, 'ids': final_ids}, 'nusc_multiple_agents_inp.pkl')
+    #final_cubes = cubes + agent_cubes
+    #final_ids = ids + agent_ids
+    #dl.save_pkl_data({'inputs': final_cubes, 'ids': final_ids}, 'nusc_multiple_agents_inp.pkl')
 
 #nuscenes_loader.nuscenes.get('sample_annotation', '67359ca5094147f3b3b210d406873407')
 

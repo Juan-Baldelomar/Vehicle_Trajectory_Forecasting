@@ -50,31 +50,34 @@ class Agent:
             fig, ax = map.render_map_mask(patch_box, patch_angle, layer_names, canvas_size, figsize=figsize, n_row=1)
             fig.show()
 
-    def getMasks(self, maps: dict, yaw=0, height=200, width=200):
+    def getMasks(self, maps: dict, timestep: AgentTimestep, path: str, name: str, height=200, width=200,
+                 canvas_size=(512, 512)):
         """
-         function to get the bitmaps of an agent's positions
+        function to get the bitmaps of an agent's positions
         :param maps: maps dictionary
-        :param yaw: angle of rotation of the masks
+        :param timestep: angle of rotation of the masks
+        :param path: angle of rotation of the masks
+        :param name: angle of rotation of the masks
         :param height: height of the bitmap
         :param width:  width of the bitmap
+        :param canvas_size:  width of the bitmap
         :return: list of bitmaps (each mask contains 2 bitmaps)
         """
         # get map
-        map = maps[self.map_name]
+        nusc_map = maps[self.map_name]
+        x, y, rot = timestep.x, timestep.y, Quaternion(timestep.rot)
+        yaw = rot.yaw_pitch_roll[0] * 180 / np.pi
 
-        masks_list = []
-
-        # traverse agents positions
-        for pos in self.abs_pos:
-            x, y = pos[0], pos[1]
-            patch_box = (x, y, height, width)
-            patch_angle = yaw  # Default orientation (yaw=0) where North is up
-            layer_names = ['drivable_area', 'walkway']
-            canvas_size = (1000, 1000)
-            map_mask = map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
-            masks_list.append(map_mask)
-
-        return masks_list
+        # build patch
+        patch_box = (x, y, height, width)
+        patch_angle = yaw  # Default orientation (yaw=0) where North is up
+        layer_names = ['drivable_area', 'lane']
+        map_mask = nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
+        return map_mask
+        # for layer in layer_names:
+        #     fig, ax = nusc_map.render_map_mask(patch_box, patch_angle, [layer], canvas_size, figsize=(12, 4), n_row=1)
+        #     fig.savefig('/'.join([path, layer, name]), format="png", dpi=canvas_size[0] / 10)
+        #     plt.close(fig)
 
     def get_map(self, maps: dict, name, x_start, y_start, x_offset=100, y_offset=100, dpi=25.6):
         """
