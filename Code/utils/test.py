@@ -39,7 +39,7 @@ inputQuery = InputQuery(nuscenes_loader)
 
 store = False
 
-cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps='masks', path='maps/masks')
+cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=None, path='maps/masks')
 #agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=False)
 
 if store:

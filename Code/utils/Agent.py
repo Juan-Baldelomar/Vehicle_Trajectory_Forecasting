@@ -70,7 +70,7 @@ class Agent:
 
         # build patch
         patch_box = (x, y, height, width)
-        patch_angle = yaw  # Default orientation (yaw=0) where North is up
+        patch_angle = 0  # Default orientation (yaw=0) where North is up
         layer_names = ['drivable_area', 'lane']
         map_mask = nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
         return map_mask
