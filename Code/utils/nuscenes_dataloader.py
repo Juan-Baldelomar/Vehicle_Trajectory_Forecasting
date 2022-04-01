@@ -7,10 +7,7 @@ from Dataset import *
 import os.path
 
 # data manipulation and graphics
-from pyquaternion import Quaternion
-import matplotlib.pyplot as plt
 import numpy as np
-from Agent import Agent
 
 # nuscenes libraries
 from nuscenes.nuscenes import NuScenes
@@ -157,30 +154,23 @@ class NuscenesLoader(Loader):
         # traverse all instances and samples
         for instance_token in instance_tokens:
             instance = self.nuscenes.get('instance', instance_token)
-
             # verify if agent does not exist, if it does information was already retrieved
             if agents.get(instance_token) is None:
                 if self.verbose:
                     print('new agent: ', instance_token)
-
-                # agent does not exist, create new agent
-                agents[instance_token] = Agent(instance_token)
-                agent: Agent = agents[instance_token]
-
                 # get head_annotation
                 first_annotation_token: str = instance['first_annotation_token']
                 first_annotation: dict = self.nuscenes.get('sample_annotation', first_annotation_token)
-
                 # tmp annotation to traverse them
                 tmp_annotation = first_annotation
-
                 # get the map_name of the agent
                 scene_token = self.nuscenes.get('sample', first_annotation['sample_token'])['scene_token']
                 scene = self.nuscenes.get('scene', scene_token)
                 location = self.nuscenes.get('log', scene['log_token'])['location']
 
-                # set agents map and scene  (NOTE: should map attribute of agent be moved to another class ?)
-                agent.map_name = location
+                # agent does not exist, create new agent
+                agent = Agent(instance_token, location)
+                agents[instance_token] = agent
                 agent.scene_token = scene_token
 
                 # traverse forward sample_annotations from first_annotation
@@ -196,13 +186,13 @@ class NuscenesLoader(Loader):
                     attributes: tuple = self.__get_agent_attributes(tmp_annotation)
 
                     # set attributes of agent
-                    agent.add_observation(sample_token, attributes[0], attributes[1], attributes[2], attributes[3],
-                                          attributes[4], attributes[5], attributes[6], attributes[7], attributes[8])
+                    agent_step = AgentTimestep(attributes[0], attributes[1], attributes[2], attributes[3], attributes[4],
+                                               attributes[5], attributes[6], attributes[7], attributes[8])
+                    agent.add_step(sample_token, agent_step)
 
                     # move to next sample_annotation if possible
                     try:
                         tmp_annotation = self.nuscenes.get('sample_annotation', tmp_annotation['next'])
-
                     except KeyError:
                         tmp_annotation = None
 

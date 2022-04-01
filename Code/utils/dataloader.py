@@ -57,26 +57,11 @@ class Loader:
         """ method to load data and should be called in the constructor"""
         raise NotImplementedError
 
-    def check_consistency(self):
-        """check that the data was load propperly and it fulfills the desired characteristics"""
-        raise NotImplementedError
-
-    def _get_custom_trajectories_data(self, **kwargs) -> dict:
-        """ get custom data as dictionary of the desired data. This functions deals with the specific details of each dataset to get the data
-            in the desired format as a dictionary. It is supposed to deal with specific context attributes of each dataset
-        """
-        raise NotImplementedError
-
     # store processed data in pkl files
     def save_pickle_data(self, filename):
-        try:
-            file = open(filename, 'wb')
+        with open(filename, 'wb') as file:
             pickle.dump(self.dataset, file, pickle.HIGHEST_PROTOCOL)
-            file.close()
             print("data stored succesfully to: ", filename)
-
-        except FileNotFoundError:
-            print('[WARN] file does not exist to store pickle data: ', filename)
 
     # read processed data in pkl files
     def load_pickle_data(self, filename):
@@ -121,34 +106,14 @@ class Loader:
                 if mode == 'overlap':
                     start, end = skip, size
                     while end <= agent_datasize:
-                        agent.index_list.append((start, end))
+                        agent.indexes.append((start, end))
                         start = end - overlap_points
                         end = start + size
                 else:
-                    agent.index_list.append((skip, size))
+                    agent.indexes.append((skip, size))
 
             elif self.verbose:
                 print('Agent {} does not have enough points in the trajectory'.format(key))
-
-    def get_trajectories_data(self, size, get_index=True, skip=0, mode='single', overlap_points=0, **kwargs) -> (np.array or list):
-        """
-        calls _get_custom_trajectories_data() to get the desired data, but first calls get_trajectories_indexes() if
-        necessary to get the indexes of start and end for each trajectory. Default mode is to get a single sub-trajectory
-        for each trajectory that was obtained while loading the data with load_data() with start = 0, end = size.
-
-        :param size indicates the minimum size of points in the trajectory (see get_trajectories_indexes doc)
-        :param get_index indicates if it needs to call get_trajectories_indexes first (for multiple trajectories or to skip
-        :param skip indicates points to skip from agents data retrived (see get_trajectories_indexes doc)
-        :param mode indicates how to treat trajectories that are bigger than the minimum size (see get_trajectories_indexes doc)
-        :param overlap_points indicates the number of points that two consecutive sub-trajectories can have
-        :param kwargs are the arguments for the __get_custom_trajectory_data
-
-        :return dictionary containing the desired values as numpy arrays
-        """
-        if get_index:
-            self.get_trajectories_indexes(size, skip, mode, overlap_points)
-
-        return self._get_custom_trajectories_data(**kwargs)
 
     def get_prediction_agents(self, size, skip=0, mode='single', overlap_points=0):
         """

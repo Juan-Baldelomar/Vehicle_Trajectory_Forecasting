@@ -8,19 +8,7 @@ nusc_ends = {'singapore-onenorth': (1500, 2000),
              'boston-seaport': (3000, 2200)}
 
 
-class AgentTimestep:
-    def __init__(self, x, y, rot, speed, accel, heading_rate, ego_pos_x, ego_pos_y, ego_rot):
-        self.x = x
-        self.y = y
-        self.rot = rot
-        self.speed = speed
-        self.accel = accel
-        self.heading_rate = heading_rate
-        self.ego_pos_x = ego_pos_x
-        self.ego_pos_y = ego_pos_y
-        self.ego_rot = ego_rot
-
-
+# --------------------------------------------------------------------------- BASE CLASS ---------------------------------------------------------------------------
 class Egostep:
     def __init__(self, x, y, rot):
         self.x = x
@@ -44,14 +32,14 @@ class Context:
 
 class EgoVehicle:
     def __init__(self, ego_id, map_name=None):
-        self.ego_id = ego_id
+        self.agent_id = ego_id
         self.indexes = []
         self.map_name = map_name
-        self.ego_steps = {}             # dict of steps in time
+        self.timesteps = {}             # dict of steps in time
 
     def add_step(self, step_id, ego_step):
-        if self.ego_steps.get(step_id) is None:
-            self.ego_steps[step_id] = ego_step
+        if self.timesteps.get(step_id) is None:
+            self.timesteps[step_id] = ego_step
 
     def get_neighbors(self, context_pool):
         """
@@ -59,7 +47,7 @@ class EgoVehicle:
         :return:
         """
         neighbors_across_time = set()
-        for timestep_id, ego_step in self.ego_steps.items():
+        for timestep_id, ego_step in self.timesteps.items():
             for neighbor in context_pool[timestep_id].neighbors:
                 neighbors_across_time.add(neighbor)
 
@@ -113,6 +101,133 @@ class EgoVehicle:
                                             figsize=(10, 10), render_egoposes_range=False, render_legend=False, alpha=0.55)
         fig.savefig(name, format="png", dpi=dpi)
         plt.close(fig)
+
+
+# --------------------------------------------------------------------- NON EGO VEHICLE AGENT ---------------------------------------------------------------------
+class AgentTimestep(Egostep):
+    def __init__(self, x, y, rot, speed, accel, heading_rate, ego_pos_x, ego_pos_y, ego_rot):
+        super(AgentTimestep, self).__init__(x, y, rot)
+        self.speed = speed
+        self.accel = accel
+        self.heading_rate = heading_rate
+        self.ego_pos_x = ego_pos_x
+        self.ego_pos_y = ego_pos_y
+        self.ego_rot = ego_rot
+
+
+class Agent(EgoVehicle):
+    context_dict = None
+
+    def __init__(self, agent_id, map_name):
+        super(Agent, self).__init__(agent_id, map_name)
+        self.scene_token = None
+
+    def add_step(self, step_id: str, agent_step: AgentTimestep):
+        self.timesteps[step_id] = agent_step
+
+    def plotMasks(self, maps: dict, height=200, width=200):
+        """
+        exploratory function to plot the bitmaps of an agent's positions
+        :param maps: maps dictionary
+        :param height: height of the bitmap
+        :param width:  width of the bitmap
+        :return: None
+        """
+        # get map
+        nusc_map = maps[self.map_name]
+        # traverse agent positions
+        for pos in self.abs_pos:
+            x, y = pos[0], pos[1]
+            patch_box = (x, y, height, width)
+            patch_angle = 0  # Default orientation where North is up
+            layer_names = ['drivable_area', 'walkway']
+            canvas_size = (1000, 1000)
+
+            figsize = (12, 4)
+            fig, ax = nusc_map.render_map_mask(patch_box, patch_angle, layer_names, canvas_size, figsize=figsize, n_row=1)
+            fig.show()
+
+    def get_map_patch(self, x_start, y_start, x_offset=100, y_offset=100):
+        ends = nusc_ends[self.map_name]
+        x_final = min(ends[0], x_start + x_offset)
+        y_final = min(ends[1], y_start + y_offset)
+        return x_start, y_start, x_final, y_final
+
+    # return list of unique neighbors through all the trajectory
+    def get_neighbors(self, kth_traj):
+        if len(self.indexes) == 0:
+            return None
+
+        start, end = self.indexes[kth_traj]
+        keys = list(self.timesteps.keys())
+        neighbors = {}
+        pos_available = 0
+
+        # traverse all contexts (sample_annotation)
+        for key in keys[start: end]:
+            context = Agent.context_dict[key]
+
+            # traverse all neighbors and add the ones that are not yet
+            for neighbor_id in context.neighbors:
+                if neighbors.get(neighbor_id) is None:
+                    neighbors[neighbor_id] = pos_available
+                    pos_available += 1
+
+        return neighbors
+
+    def get_transformer_matrix(self, agents: dict, kth_traj: int, offset_origin=-1):
+        neighbors_positions = self.get_neighbors(kth_traj)
+        start, end = self.index_list[kth_traj]
+
+        traj_size = end - start
+        matrix = np.zeros((len(neighbors_positions), traj_size, 2))
+        time_steps = list(self.timesteps.keys())
+
+        # use a fixed origin in the agent abs positions
+        if offset_origin >= 0:
+            x_o, y_o = self.abs_pos[offset_origin]
+
+        for j in range(start, end):
+
+            # use the current abs position of the agent as origin
+            if offset_origin < 0:
+                x_o, y_o = self.abs_pos[j]
+
+            context_key = time_steps[j]
+            agent_neighbor_ids = Agent.context_dict[context_key]['neighbors']
+
+            for neighbor_id in agent_neighbor_ids:
+                neighbor: Agent = agents[neighbor_id]
+                time_pos = neighbor.timesteps.get(context_key)
+                if time_pos is not None:
+                    x, y = neighbor.abs_pos[time_pos]
+                    i = neighbors_positions[neighbor_id]
+                    matrix[i, j, 0] = x - x_o
+                    matrix[i, j, 1] = y - y_o
+
+        return matrix
+
+    def get_features(self, timestep_id, origin_timestep=None, use_ego=True):
+        x_o, y_o, origin_rot = 0, 0, (0, 0, 0, 1)
+        if origin_timestep is not None:
+            if use_ego:
+                x_o = origin_timestep.x
+                y_o = origin_timestep.y
+                origin_rot = origin_timestep.rot
+            else:
+                x_o = origin_timestep.x
+                y_o = origin_timestep.y
+                origin_rot = origin_timestep.rot
+
+        agent_time_step = self.timesteps[timestep_id]
+        x_pos = agent_time_step.x - x_o
+        y_pos = agent_time_step.y - y_o
+        vel = agent_time_step.speed
+        acc = agent_time_step.accel
+        rel_rot = Quaternion(origin_rot).inverse * Quaternion(agent_time_step.rot)
+        yaw, _, _ = rel_rot.yaw_pitch_roll
+        yaw = yaw  # in radians
+        return x_pos, y_pos, yaw, vel, acc
 
 
 class Dataset:

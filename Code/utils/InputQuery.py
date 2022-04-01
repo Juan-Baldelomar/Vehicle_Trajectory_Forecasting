@@ -1,6 +1,5 @@
 
 from dataloader import Loader
-from Agent import Agent
 from Dataset import *
 import numpy as np
 from pyquaternion import Quaternion
@@ -166,7 +165,7 @@ class InputQuery:
         ego_vehicles: dict = self.dataloader.dataset.ego_vehicles
         for ego_id, ego_vehicle in ego_vehicles.items():
             tmp_start = 0
-            timesteps = list(ego_vehicle.ego_steps.items())
+            timesteps = list(ego_vehicle.timesteps.items())
             for s_index, (timestep_id, timestep) in enumerate(timesteps):
                 if len(self.dataloader.dataset.contexts[timestep_id].neighbors) == 0:
                     tmp_start += 1
@@ -194,14 +193,14 @@ class InputQuery:
         """
         assert (len(ego_vehicle.indexes) > 0)
 
-        ego_id = ego_vehicle.ego_id
+        ego_id = ego_vehicle.agent_id
         start, end = ego_vehicle.indexes[seq_number]
         inputTensor = np.zeros((total_seq_l, N, 5))  # (seq, neighbors, features)
         inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
         neigh_bitmaps = np.zeros((N, 2, *canvas_size))
 
         # timesteps that will be traversed, timestep[0] = key, timestep[1] = egostep object
-        timesteps = list(ego_vehicle.ego_steps.items())[start: end]
+        timesteps = list(ego_vehicle.timesteps.items())[start: end]
         origin_timestep = timesteps[offset][1] if offset != -1 else None
 
         # get map in file
@@ -250,8 +249,8 @@ class InputQuery:
 
         return inputTensor, inputMask, neigh_bitmaps
 
-    def get_agentcentered_input(self, agent: Agent, agents, total_seq_l: int, N: int, get_maps: str = None,
-                                path='maps', seq_number=0, offset=-1, canvas_size=(512, 512)):
+    def get_agentcentered_input(self, agent: Agent, agents, total_seq_l: int, N: int, seq_number=0, offset=-1, get_maps: str = None,
+                                path='maps', canvas_size=(512, 512)):
         """
         get input scene centered in a specific ego-vehicle timestep.
         :param agent      : Agent object target
@@ -266,9 +265,9 @@ class InputQuery:
         :param canvas_size: size of the canvas of the bitmap
         :return           : InputTensor with shape (sequence, neighbors, features) and InputMask (sequence, neighbors) that masks neighbors that do not appear.
         """
-        assert(len(agent.index_list) > 0)
+        assert(len(agent.indexes) > 0)
 
-        start, end = agent.index_list[seq_number]
+        start, end = agent.indexes[seq_number]
         # input cubes for agent
         inputTensor = np.zeros((total_seq_l, N, 5))
         inputMask = np.ones((total_seq_l, N))  # at the beginning, all neighbors have padding
@@ -332,40 +331,43 @@ class InputQuery:
         for ego_id, ego_vehicle in ego_vehicles.items():
             for i, (_, _) in enumerate(ego_vehicle.indexes):
                 # get inputTensor and its mask centered in egovehicle
-                inputTensor, inputMask, bitmaps = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, i, offset, get_maps, path)
+                inputTensor, inputMask, bitmaps = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
+                                                                             offset=offset, get_maps=get_maps, path=path)
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
-
                 # split trajectories into input and target
                 inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
                 list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
                 # save bitmaps and store name
-                name = ego_id + '_' + str(i) + '.png'
-                list_agent_ids.append(name)
-                np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
+                if get_maps:
+                    name = ego_id + '_' + str(i) + '.png'
+                    list_agent_ids.append(name)
+                    np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
 
         # return inputs
         return list_inputs, list_agent_ids
 
-    def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps=False):
+    def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps: str = None, path='maps'):
         self.dataloader.get_trajectories_indexes(size=inp_seq_l + tar_seq_l, mode='overlap', overlap_points=tar_seq_l)
         # useful variables
         agents: dict = self.dataloader.dataset.agents
         list_inputs, list_agent_ids = [], []
         total_seq_l = inp_seq_l + tar_seq_l
 
-        for agent_id in agents.keys():
-            agent = agents[agent_id]
+        for agent_id, agent in agents.items():
             # traverse trajectories for agent
-            for i, (start, end) in enumerate(agent.index_list):
+            for i, (_, _) in enumerate(agent.indexes):
                 # input cubes for agent
-                inputTensor, inputMask = self.get_agentcentered_input(agent, agents, total_seq_l, N, get_maps, i, offset)
+                inputTensor, inputMask, bitmaps = self.get_agentcentered_input(agent, agents, total_seq_l, N, seq_number=i,
+                                                                               offset=offset, get_maps=get_maps, path=path)
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
-
                 # split inputs into past and future
-                inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask,
-                                                                                     inp_seq_l, tar_seq_l, N)
+                inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
                 list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
-                list_agent_ids.append(agent_id + '_' + str(i))
+                # save bitmaps and store name
+                if get_maps:
+                    name = agent_id + '_' + str(i) + '.png'
+                    list_agent_ids.append(name)
+                    np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
 
         # close for agent_id in agent.keys()
         return list_inputs, list_agent_ids
@@ -388,10 +390,10 @@ class InputQuery:
 
             for neighbor_id in neighbors_ids:
                 neighbor = self.dataloader.dataset.agents[neighbor_id]
-                if len(neighbor.index_list) == 0:
+                if len(neighbor.indexes) == 0:
                     continue
 
-                for start, end in neighbor.index_list:
+                for start, end in neighbor.indexes:
                     # init inputs
                     inputTensor = np.zeros((total_seq_l, 5))
                     inputMask = np.zeros(total_seq_l)
