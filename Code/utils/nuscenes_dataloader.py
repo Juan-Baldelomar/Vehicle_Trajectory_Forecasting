@@ -8,6 +8,7 @@ import os.path
 
 # data manipulation and graphics
 import numpy as np
+from pyquaternion import Quaternion
 
 # nuscenes libraries
 from nuscenes.nuscenes import NuScenes
@@ -80,10 +81,6 @@ class NuscenesLoader(Loader):
     def setVerbose(self, verbose: bool):
         self.verbose = verbose
 
-    # create and insert neighbors to the context dictionary
-    def insert_context_neighbor(self, instance_token: str, sample_token: str):
-        self.dataset.contexts[sample_token].neighbors.add(instance_token)
-
     # get attributes of and agent in a specific moment in time (sample)
     def __get_agent_attributes(self, sample_annotation) -> tuple:
         # get tokens and sample
@@ -93,7 +90,7 @@ class NuscenesLoader(Loader):
 
         # get attributes
         abs_pos = sample_annotation['translation']
-        rotation = sample_annotation['rotation']
+        rotation = Quaternion(sample_annotation['rotation']).yaw_pitch_roll[0]
         speed = self.helper.get_velocity_for_agent(instance_token, sample_token)
         accel = self.helper.get_acceleration_for_agent(instance_token, sample_token)
         heading_rate = self.helper.get_heading_change_rate_for_agent(instance_token, sample_token)
@@ -105,7 +102,7 @@ class NuscenesLoader(Loader):
         ego_pose_token = self.nuscenes.get('sample_data', sample_data_token)['ego_pose_token']
         ego_pose = self.nuscenes.get('ego_pose', ego_pose_token)
         ego_pose_x, ego_pose_y = ego_pose['translation'][:2]
-        ego_rotation = ego_pose['rotation']
+        ego_rotation = Quaternion(ego_pose['rotation']).yaw_pitch_roll[0]
 
         return abs_pos[0], abs_pos[1], rotation, speed, accel, heading_rate, ego_pose_x, ego_pose_y, ego_rotation
 
@@ -177,9 +174,8 @@ class NuscenesLoader(Loader):
                 while tmp_annotation is not None:
                     sample_token = tmp_annotation['sample_token']
 
-                    # insert neighbors to corresponding context dictionary and to ego_vehicle dictionary
-                    # self.dataset['ego_vehicles'][scene_token]['timesteps'][sample_token]['neighbors'].append(instance_token)
-                    self.insert_context_neighbor(instance_token, sample_token)
+                    # insert neighbors to corresponding context dictionary
+                    self.dataset.insert_context_neighbor(instance_token, sample_token)
 
                     # get agent attributes tuple as: [0]-> abs_pos_x, [1]-> abs_pos_y, [2]-> rotation: list, [3]-> speed: float ,
                     # [4]-> accel: float, [5]-> heading_rate: float, [6]-> ego_pose_x, [7]-> ego_pose_y, [8]-> ego_rotation : list

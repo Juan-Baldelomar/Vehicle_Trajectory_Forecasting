@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from pyquaternion import Quaternion
 
 nusc_ends = {'singapore-onenorth': (1500, 2000),
              'singapore-queenstown': (3200, 3500),
@@ -67,8 +66,7 @@ class EgoVehicle:
         """
         # get map
         nusc_map = maps[self.map_name]
-        x, y, rot = timestep.x, timestep.y, Quaternion(timestep.rot)
-        yaw = rot.yaw_pitch_roll[0] * 180 / np.pi
+        x, y, yaw = timestep.x, timestep.y, timestep.rot * 180 / np.pi
 
         # build patch
         patch_box = (x, y, height, width)
@@ -156,26 +154,30 @@ class Agent(EgoVehicle):
         return neighbors
 
     def get_features(self, timestep_id, origin_timestep=None, use_ego=True):
-        x_o, y_o, origin_rot = 0, 0, (0, 0, 0, 1)
+        x_o, y_o, origin_rot = 0, 0, 0
         if origin_timestep is not None:
-            if use_ego:
-                x_o = origin_timestep.x
-                y_o = origin_timestep.y
-                origin_rot = origin_timestep.rot
-            else:
-                x_o = origin_timestep.x
-                y_o = origin_timestep.y
-                origin_rot = origin_timestep.rot
+            x_o = origin_timestep.x
+            y_o = origin_timestep.y
+            origin_rot = origin_timestep.rot
 
         agent_time_step = self.timesteps[timestep_id]
         x_pos = agent_time_step.x - x_o
         y_pos = agent_time_step.y - y_o
         vel = agent_time_step.speed
         acc = agent_time_step.accel
-        rel_rot = Quaternion(origin_rot).inverse * Quaternion(agent_time_step.rot)
-        yaw, _, _ = rel_rot.yaw_pitch_roll
-        yaw = yaw  # in radians
-        return x_pos, y_pos, yaw, vel, acc
+        rel_rot = agent_time_step.rot - origin_rot
+        return x_pos, y_pos, rel_rot, vel, acc
+
+
+class ShiftsAgent(Agent):
+    def __init__(self, agent_id, map_name):
+        super(ShiftsAgent, self).__init__(agent_id, map_name)
+
+    def getMasks(self, maps: dict, timestep: Egostep, path: str, name: str,
+                 height=200, width=200, canvas_size=(512, 512)):
+
+        # get maps. Python Notebook already has how to retrieve them. Investigate how to retrieve them for a specific scene.
+        raise NotImplementedError
 
 
 class Dataset:
@@ -188,8 +190,8 @@ class Dataset:
     """
     def __init__(self):
         self.agents = {}
-        self.contexts: dict[Context] = {}
-        self.ego_vehicles: dict[EgoVehicle] = {}
+        self.contexts: dict[str] = {}
+        self.ego_vehicles: dict[str] = {}
 
     def add_agent(self, agent_id, agent):
         if self.agents.get(agent_id) is None:
@@ -197,10 +199,13 @@ class Dataset:
         else:
             print("[WARN]: trying to add agent again")
 
-    def add_context(self, context_id):
+    def add_context(self, context_id, context):
         if self.contexts.get(context_id) is None:
-            self.contexts[context_id] = Context(context_id)
+            self.contexts[context_id] = context
 
     def add_ego_vehicle(self, ego_id, egovehicle):
         if self.ego_vehicles.get(ego_id) is None:
             self.ego_vehicles[ego_id] = egovehicle
+
+    def insert_context_neighbor(self, agent_id: str, context_id: str):
+        self.contexts[context_id].neighbors.add(agent_id)

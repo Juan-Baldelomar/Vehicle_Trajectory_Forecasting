@@ -44,70 +44,44 @@ class ShiftsLoader(Loader):
         agents = {}
         # traverse scenes
         for scene in scenes:
-
             #get tracks of interest
             prediction_requests_ids = {pr.track_id for pr in scene.prediction_requests}
+            # join past and future steps
+            steps = list(scene.past_vehicle_tracks) + list(scene.future_vehicle_tracks)
+            ego_steps = list(scene.past_ego_tracks) + list(scene.future_ego_tracks)
+            # load ego vehicle and contexts of the scene
+            self.load_ego_vehicles_and_context(scene.id, ego_steps)
 
             # traverse each past timestep
-            for track_step, ego in zip(scene.past_vehicle_tracks, scene.past_ego_track):
+            for i, (track_step, ego_step) in enumerate(zip(steps, ego_steps)):
                 # traverse all agents
                 for track in track_step.tracks:
                     # ignore those that are not candidates to be used to predict
                     if track.track_id not in prediction_requests_ids:
                         continue
 
-                    agent_id = scene.id + str(track.track_id)           # build a unique agent id in all dataset
-
+                    # build a unique agent id in all dataset
+                    agent_id = scene.id + str(track.track_id)
                     # CREATE agent if does not exist
                     if agents.get(agent_id) is None:
                         # verbose mode
                         print('new agent: ', agent_id) if self.verbose else None
-                        agents[agent_id] = Agent(agent_id, None)
-
+                        agents[agent_id] = ShiftsAgent(agent_id, None)
+                    # append agent
                     agent = agents[agent_id]
-                    append_agent_data(agent, track, ego)
+                    append_agent_data(agent, track, ego_step)
+                    # insert agent as neighbor (scene.id + i = context_id or same as step_id)
+                    self.dataset.insert_context_neighbor(agent_id, scene.id + str(i))
 
             # FOR track_step, ego in zip(...)
-
-            # traverse each future timestep
-            for track_step, ego in zip(scene.future_vehicle_tracks, scene.future_ego_track):
-                for track in track_step.tracks:
-                    # ignore those that are not candidates to be used to predict
-                    if track.track_id not in prediction_requests_ids:
-                        continue
-
-                    agent_id = scene.id + str(track.track_id)           # build a unique agent id in all dataset
-                    agent = agents[agent_id]
-                    append_agent_data(agent, track, ego)
-
         return agents
 
-    def load_ego_vehicles(self, ego_id, ego_steps, location=None):
+    def load_ego_vehicles_and_context(self, ego_id, ego_steps, location=None):
         ego_vehicle = EgoVehicle(ego_id, location)
         self.dataset.add_ego_vehicle(ego_id, ego_vehicle)
 
         for i, step in enumerate(ego_steps):
             # step_id should be the id of the context object in the Context scene
             step_id = ego_id + '_' + i
+            self.dataset.add_context(step_id, Context(step_id))
             ego_vehicle.add_step(step_id, Egostep(step.position.x, step.position.y, step.yaw))
-
-    def get_context_information(self):
-        pass
-
-# shifts_data = ShiftsLoader('/data/shifts/data/development', pickle=False)
-#
-# trajs = shifts_data.get_trajectories_data(size=50, offset=25)
-#
-# trajs['abs_pos'] = np.array(trajs['abs_pos'])
-# trajs['rel_pos'] = np.array(trajs['rel_pos'])
-# trajs['rotation'] = np.array(trajs['rotation'])
-# trajs['rel_rotation'] = np.array(trajs['rel_rotation'])
-# trajs['speed'] = np.array(trajs['speed'])
-# trajs['accel'] = np.array(trajs['accel'])
-#
-# trajs['abs_pos'][0]
-#
-# save_pkl_data(trajs, '/data/shifts/sample_shifts_data.pkl')
-#
-# en = list(shifts_data.dataset['agents'].keys())
-# len(en)
