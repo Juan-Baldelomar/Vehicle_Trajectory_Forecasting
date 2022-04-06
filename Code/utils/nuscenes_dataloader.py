@@ -72,7 +72,7 @@ class NuscenesLoader(Loader):
             self.helper = PredictHelper(self.nuscenes)
             self.get_context_information()
             self.load_ego_vehicles()
-            self.dataset.agents = self.load_data()
+            self.load_data()
             self.save_pickle_data(pickle_filename)
 
         Agent.context_dict = self.dataset.contexts
@@ -108,53 +108,49 @@ class NuscenesLoader(Loader):
 
     def load_ego_vehicles(self):
         scenes = self.nuscenes.scene
+        # traverse all scenes (basically all ego-vehicles)
         for scene in scenes:
             # read token and use it as id for ego_vehicle
             token = scene['token']
             # get the map_name of the agent
             location = self.nuscenes.get('log', scene['log_token'])['location']
-
+            # add ego vehicle to dataset
             self.dataset.add_ego_vehicle(token, EgoVehicle(token, location))
             # read its first sample token
             sample_token = scene['first_sample_token']
-
+            # traverse all timesteps
             while sample_token != '':
                 sample = self.nuscenes.get('sample', sample_token)
-
                 # get sample_data_token of a sensor to read EGO_POSE
                 sample_data_token = sample['data']['RADAR_FRONT']
-
                 # get ego_pose
                 ego_pose_token = self.nuscenes.get('sample_data', sample_data_token)['ego_pose_token']
                 ego_pose = self.nuscenes.get('ego_pose', ego_pose_token)
                 ego_pose_x, ego_pose_y = ego_pose['translation'][:2]
-                ego_rotation = ego_pose['rotation']
-
+                ego_rotation = Quaternion(ego_pose['rotation']).yaw_pitch_roll[0]
+                # add egostep
                 self.dataset.ego_vehicles[token].add_step(sample_token, Egostep(ego_pose_x, ego_pose_y, ego_rotation))
                 sample_token = sample['next']
 
-    def load_data(self) -> dict:
+    def load_data(self):
         """
         this function traverses the agents in the nuscenes scheme and stores all the relevant information such as positions, rotations, etc.
-        :return: dictionary object  with agents and their information
+        :return: None
         """
         # list of the form <instance_token>_<sample_token>
         mini_train: list = get_prediction_challenge_split(self.data_name, dataroot=self.DATAROOT)
-
         # split instance_token from sample_token
         inst_sampl_tokens = np.array([token.split("_") for token in mini_train])
         instance_tokens = set(inst_sampl_tokens[:, 0])
-
-        # dictionary of agents
-        agents: dict[Agent] = {}
+        # self.dictionary of agents to make access easier
+        agents: dict[Agent] = self.dataset.agents
 
         # traverse all instances and samples
         for instance_token in instance_tokens:
             instance = self.nuscenes.get('instance', instance_token)
             # verify if agent does not exist, if it does information was already retrieved
             if agents.get(instance_token) is None:
-                if self.verbose:
-                    print('new agent: ', instance_token)
+                print('new agent: ', instance_token) if self.verbose else None
                 # get head_annotation
                 first_annotation_token: str = instance['first_annotation_token']
                 first_annotation: dict = self.nuscenes.get('sample_annotation', first_annotation_token)
@@ -164,7 +160,6 @@ class NuscenesLoader(Loader):
                 scene_token = self.nuscenes.get('sample', first_annotation['sample_token'])['scene_token']
                 scene = self.nuscenes.get('scene', scene_token)
                 location = self.nuscenes.get('log', scene['log_token'])['location']
-
                 # agent does not exist, create new agent
                 agent = Agent(instance_token, location)
                 agents[instance_token] = agent
@@ -173,14 +168,12 @@ class NuscenesLoader(Loader):
                 # traverse forward sample_annotations from first_annotation
                 while tmp_annotation is not None:
                     sample_token = tmp_annotation['sample_token']
-
                     # insert neighbors to corresponding context dictionary
                     self.dataset.insert_context_neighbor(instance_token, sample_token)
 
-                    # get agent attributes tuple as: [0]-> abs_pos_x, [1]-> abs_pos_y, [2]-> rotation: list, [3]-> speed: float ,
+                    # get agent attributes tuple as: [0]-> pos_x, [1]-> pos_y, [2]-> rotation: list, [3]-> speed: float ,
                     # [4]-> accel: float, [5]-> heading_rate: float, [6]-> ego_pose_x, [7]-> ego_pose_y, [8]-> ego_rotation : list
                     attributes: tuple = self.__get_agent_attributes(tmp_annotation)
-
                     # set attributes of agent
                     agent_step = AgentTimestep(attributes[0], attributes[1], attributes[2], attributes[3], attributes[4],
                                                attributes[5], attributes[6], attributes[7], attributes[8])
@@ -191,12 +184,6 @@ class NuscenesLoader(Loader):
                         tmp_annotation = self.nuscenes.get('sample_annotation', tmp_annotation['next'])
                     except KeyError:
                         tmp_annotation = None
-
-                # close while
-            # close IF agent.get(instance_token) Block
-
-        # close For instance_token
-        return agents
 
     def get_context_information(self):
         """
@@ -214,21 +201,20 @@ class NuscenesLoader(Loader):
                 collection[sample_annotation_token] = {
                     'abs_pos': sample_annotation['translation'][0:2]
                 }
-
+        # traverse all timesteps
         for sample in self.nuscenes.sample:
             sample_token = sample['token']
-
+            # get map name
             scene_token = self.nuscenes.get('sample', sample_token)['scene_token']
             scene = self.nuscenes.get('scene', scene_token)
             location = self.nuscenes.get('log', scene['log_token'])['location']
-
+            # build new Context object
             self.dataset.contexts[sample_token] = Context(sample_token, location)
             sample_annotation_tokens = sample['anns']
 
             # get context information
             for ann_token in sample_annotation_tokens:
                 sample_annotation = self.nuscenes.get('sample_annotation', ann_token)
-
                 # get the instance category
                 categories = sample_annotation['category_name'].split('.')
 

@@ -18,15 +18,19 @@ class Egostep:
 class Context:
     def __init__(self, context_id, location=None):
         self.context_id = context_id
-        self.neighbors = set()
+        self.neighbors = {}
         self.non_pred_neighbors = {}
         self.humans = {}
         self.objects = {}
         self.map = location
 
-    def add_non_pred_neighbor(self, agent_id, agent_timestep):
+    def add_pred_neighbor(self, agent_id):
+        if self.neighbors.get(agent_id) is None:
+            self.neighbors[agent_id] = 1
+
+    def add_non_pred_neighbor(self, agent_id):
         if self.non_pred_neighbors.get(agent_id) is None:
-            self.non_pred_neighbors[agent_id] = agent_timestep
+            self.non_pred_neighbors[agent_id] = 1
 
 
 class EgoVehicle:
@@ -170,6 +174,10 @@ class Agent(EgoVehicle):
 
 
 class ShiftsAgent(Agent):
+    """
+    ShiftAgent to override getMasks function. We will use the path of scene_generator(filepaths, yield_fpath=True) as map name
+    because, through the scene file, the map can be rendered
+    """
     def __init__(self, agent_id, map_name):
         super(ShiftsAgent, self).__init__(agent_id, map_name)
 
@@ -190,7 +198,8 @@ class Dataset:
     """
     def __init__(self):
         self.agents = {}
-        self.contexts: dict[str] = {}
+        self.non_pred_agents = {}
+        self.contexts: {str: Context} = {}
         self.ego_vehicles: dict[str] = {}
 
     def add_agent(self, agent_id, agent):
@@ -208,4 +217,5 @@ class Dataset:
             self.ego_vehicles[ego_id] = egovehicle
 
     def insert_context_neighbor(self, agent_id: str, context_id: str):
-        self.contexts[context_id].neighbors.add(agent_id)
+        self.contexts[context_id].add_pred_neighbor(agent_id)
+
