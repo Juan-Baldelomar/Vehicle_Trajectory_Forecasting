@@ -250,7 +250,7 @@ class InputQuery:
         for s_index, (timestep_id, timestep) in enumerate(timesteps):
             # ADD EGO VEHICLE TIMESTEP AS INPUT
             inputTensor[s_index, 0, :2] = timestep.x - origin_timestep.x, timestep.y - origin_timestep.y
-            inputTensor[s_index, 0,  2] = (Quaternion(origin_timestep.rot).inverse * Quaternion(timestep.rot)).yaw_pitch_roll[0]
+            inputTensor[s_index, 0,  2] = timestep.rot - origin_timestep.rot
             inputMask[s_index, 0] = 0
 
             # neighbors IDs in each timestep
@@ -263,7 +263,7 @@ class InputQuery:
                 if neighbor_pos >= N:
                     continue
                 # retrieve agent
-                agent: Agent = agents[neighbor]
+                agent: NuscenesAgent = agents[neighbor]
                 # get features of the agent in this timestep
                 inputTensor[s_index, neighbor_pos, :] = agent.get_features(timestep_id, origin_timestep)
                 # turn off mask in this position
@@ -271,11 +271,11 @@ class InputQuery:
 
         return inputTensor, inputMask, neigh_bitmaps
 
-    def get_agentcentered_input(self, agent: Agent, agents, total_seq_l: int, N: int, seq_number=0,
+    def get_agentcentered_input(self, agent: NuscenesAgent, agents, total_seq_l: int, N: int, seq_number=0,
                                 offset=-1, get_maps: str = None, canvas_size=(512, 512), **kwargs):
         """
         get input scene centered in a specific ego-vehicle timestep.
-        :param agent      : Agent object target
+        :param agent      : NuscenesAgent object target
         :param agents     : dictionary of agent objects that contain agent information
         :param total_seq_l: sequence length
         :param N          : number of neighbors
@@ -315,14 +315,14 @@ class InputQuery:
         for s_index, (timestep_id, timestep) in enumerate(timesteps):
             # ADD EGO VEHICLE TIMESTEP AS INPUT
             inputTensor[s_index, 0, :2] = timestep.ego_pos_x - origin_timestep.x, timestep.ego_pos_y - origin_timestep.y
-            inputTensor[s_index, 0, 2] = (Quaternion(origin_timestep.rot).inverse * Quaternion(timestep.ego_rot)).yaw_pitch_roll[0]
+            inputTensor[s_index, 0, 2] = timestep.ego_rot - origin_timestep.rot
             inputMask[s_index, 0] = 0
 
             # get neighbor ids in that specific timestep
             agent_neighbor_ids = self.dataset.contexts[timestep_id].neighbors
             # traver neighbors
             for neighbor_id in agent_neighbor_ids:
-                neighbor: Agent = agents[neighbor_id]
+                neighbor: NuscenesAgent = agents[neighbor_id]
                 neighbor_pos = neighbors_positions[neighbor_id] + 1       # +1 to account for the fact that ego vehicle is in position 0.
                 # check available space for neighbor
                 if neighbor_pos >= N:

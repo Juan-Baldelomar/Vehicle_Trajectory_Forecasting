@@ -75,7 +75,7 @@ class NuscenesLoader(Loader):
             self.load_data()
             self.save_pickle_data(pickle_filename)
 
-        Agent.context_dict = self.dataset.contexts
+        NuscenesAgent.context_dict = self.dataset.contexts
 
     # set verbose mode which determines if it should print the relevant information while processing the data
     def setVerbose(self, verbose: bool):
@@ -143,7 +143,7 @@ class NuscenesLoader(Loader):
         inst_sampl_tokens = np.array([token.split("_") for token in mini_train])
         instance_tokens = set(inst_sampl_tokens[:, 0])
         # self.dictionary of agents to make access easier
-        agents: dict[Agent] = self.dataset.agents
+        agents: dict[NuscenesAgent] = self.dataset.agents
 
         # traverse all instances and samples
         for instance_token in instance_tokens:
@@ -161,7 +161,7 @@ class NuscenesLoader(Loader):
                 scene = self.nuscenes.get('scene', scene_token)
                 location = self.nuscenes.get('log', scene['log_token'])['location']
                 # agent does not exist, create new agent
-                agent = Agent(instance_token, location)
+                agent = NuscenesAgent(instance_token, location)
                 agents[instance_token] = agent
                 agent.scene_token = scene_token
 
@@ -175,8 +175,8 @@ class NuscenesLoader(Loader):
                     # [4]-> accel: float, [5]-> heading_rate: float, [6]-> ego_pose_x, [7]-> ego_pose_y, [8]-> ego_rotation : list
                     attributes: tuple = self.__get_agent_attributes(tmp_annotation)
                     # set attributes of agent
-                    agent_step = AgentTimestep(attributes[0], attributes[1], attributes[2], attributes[3], attributes[4],
-                                               attributes[5], attributes[6], attributes[7], attributes[8])
+                    agent_step = NuscenesAgentTimestep(attributes[0], attributes[1], attributes[2], attributes[3], attributes[4],
+                                                       attributes[5], attributes[6], attributes[7], attributes[8])
                     agent.add_step(sample_token, agent_step)
 
                     # move to next sample_annotation if possible

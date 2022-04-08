@@ -30,12 +30,12 @@ class Loader:
 
     * Loader Parent Class: This class should be implemented by any specific loader of the desired dataset.
     * self.dataset should be an object Datset defined in the Dataset.py. The ideal is that it contains
-            - Agent dictionary like agents[agent_id] = Agent() object.
+            - NuscenesAgent dictionary like agents[agent_id] = NuscenesAgent() object.
             - EgoVehicles dictionary like ego_vehicles[ego_id] = EgoVehicle() object.
             - Context dictionary like Context[context_id] = Context Object. A context is an object that holds information (Ideally)
               of the neighbors (candidates of prediction) and all the other agents (like persons, obstacles, etc...) in a Sample from the
               scene. A Sample of the scene is a timestep of the scene that contains information stored in the database.
-            -NOTE: separation between EgoVehicle and Agent is made because some datasets like nuscenes might not annotate the same
+            -NOTE: separation between EgoVehicle and NuscenesAgent is made because some datasets like nuscenes might not annotate the same
              information for the ego vehicle and an agent.
 
     * self.dataset should be obtained when the implementarion of load_data() is called

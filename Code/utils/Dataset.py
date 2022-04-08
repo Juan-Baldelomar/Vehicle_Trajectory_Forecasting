@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from ysdc_dataset_api.utils import get_to_track_frame_transform, read_scene_from_file
+from ysdc_dataset_api.utils import get_to_track_frame_transform, read_scene_from_file, VehicleTrack
 import numpy as np
 
 nusc_ends = {'singapore-onenorth': (1500, 2000),
@@ -9,11 +9,29 @@ nusc_ends = {'singapore-onenorth': (1500, 2000),
 
 
 # --------------------------------------------------------------------------- BASE CLASS ---------------------------------------------------------------------------
-class Egostep:
-    def __init__(self, x, y, rot):
+class AgentTimestep:
+    def __init__(self, x: float, y: float, rot):
         self.x = x
         self.y = y
         self.rot = rot
+
+
+class Agent:
+    def __init__(self, agent_id, map_name=None):
+        self.agent_id = agent_id
+        self.indexes = []
+        self.map_name = map_name
+        self.timesteps = {}             # dict of steps in time
+
+    def add_step(self, step_id, step):
+        if self.timesteps.get(step_id) is None:
+            self.timesteps[step_id] = step
+
+    def get_neighbors(self, *args):
+        raise NotImplementedError
+
+    def getMasks(self, timestep: AgentTimestep, **kwargs):
+        raise NotImplementedError
 
 
 class Context:
@@ -34,16 +52,15 @@ class Context:
             self.non_pred_neighbors[agent_id] = 1
 
 
-class EgoVehicle:
-    def __init__(self, ego_id, map_name=None):
-        self.agent_id = ego_id
-        self.indexes = []
-        self.map_name = map_name
-        self.timesteps = {}             # dict of steps in time
+# -------------------------------------------------------------- NUSCENES IMPLEMENTATIONS --------------------------------------------------------------
+class Egostep(AgentTimestep):
+    def __init__(self, x, y, rot):
+        super(Egostep, self).__init__(x, y, rot)
 
-    def add_step(self, step_id, ego_step):
-        if self.timesteps.get(step_id) is None:
-            self.timesteps[step_id] = ego_step
+
+class EgoVehicle(Agent):
+    def __init__(self, ego_id, map_name=None):
+        super(EgoVehicle, self).__init__(ego_id, map_name)
 
     def get_neighbors(self, context_pool):
         """
@@ -102,12 +119,12 @@ class EgoVehicle:
         plt.close(fig)
 
 
-# --------------------------------------------------------------------- NON EGO VEHICLE AGENT ---------------------------------------------------------------------
-class AgentTimestep(Egostep):
+# **************************************  non ego vehicle agent **************************************
+class NuscenesAgentTimestep(Egostep):
     def __init__(self, x: float, y: float, rot, speed: float, accel: float,
                  heading_rate: float, ego_pos_x: float, ego_pos_y: float, ego_rot):
 
-        super(AgentTimestep, self).__init__(x, y, rot)
+        super(NuscenesAgentTimestep, self).__init__(x, y, rot)
         self.speed = speed
         self.accel = accel
         self.heading_rate = heading_rate
@@ -116,14 +133,14 @@ class AgentTimestep(Egostep):
         self.ego_rot = ego_rot
 
 
-class Agent(EgoVehicle):
+class NuscenesAgent(EgoVehicle):
     context_dict = None
 
     def __init__(self, agent_id, map_name):
-        super(Agent, self).__init__(agent_id, map_name)
+        super(NuscenesAgent, self).__init__(agent_id, map_name)
         self.scene_token = None
 
-    def add_step(self, step_id: str, agent_step: AgentTimestep):
+    def add_step(self, step_id: str, agent_step: NuscenesAgentTimestep):
         self.timesteps[step_id] = agent_step
 
     def get_map_patch(self, x_start, y_start, x_offset=100, y_offset=100):
@@ -144,7 +161,7 @@ class Agent(EgoVehicle):
 
         # traverse all contexts (sample_annotation)
         for key in keys[start: end]:
-            context = Agent.context_dict[key]
+            context = NuscenesAgent.context_dict[key]
 
             # traverse all neighbors and add the ones that are not yet
             for neighbor_id in context.neighbors:
@@ -170,25 +187,62 @@ class Agent(EgoVehicle):
         return x_pos, y_pos, rel_rot, vel, acc
 
 
+# -------------------------------------------------------------- SHIFTS IMPLEMENTATIONS --------------------------------------------------------------
+class ShiftTimeStep(AgentTimestep):
+    def __init__(self, x: float, y: float, rot: float, x_speed: float, y_speed: float, x_accel: float,
+                 y_accel: float, ego_pos_x: float, ego_pos_y: float, ego_rot: float):
+        super(ShiftTimeStep, self).__init__(x, y, rot)
+        self.x_speed = x_speed
+        self.x_accel = x_accel
+        self.y_speed = y_speed
+        self.y_accel = y_accel
+        self.speed = np.sqrt(x_speed ** 2 + y_speed ** 2)
+        self.accel = np.sqrt(x_accel ** 2 + y_accel ** 2)
+        self.ego_pos_x = ego_pos_x
+        self.ego_pos_y = ego_pos_y
+        self.ego_rot = ego_rot
+
+
 class ShiftsAgent(Agent):
-    """
-    ShiftAgent to override getMasks function. We will use the path of scene_generator(filepaths, yield_fpath=True) as map name
-    because, through the scene file, the map can be rendered
-    """
-    def __init__(self, agent_id, map_name):
+    def __init__(self, agent_id, map_name=None):
         super(ShiftsAgent, self).__init__(agent_id, map_name)
 
-    def getMasks(self, timestep: Egostep, renderer):
+    def get_neighbors(self, context_pool):
+        """
+        :param context_pool: dictionary of Context objects
+        :return:
+        """
+        neighbors_across_time = set()
+        for timestep_id, ego_step in self.timesteps.items():
+            for neighbor in context_pool[timestep_id].neighbors:
+                neighbors_across_time.add(neighbor)
+
+        return neighbors_across_time
+
+    def getMasks(self, timestep: ShiftTimeStep, renderer=None):
+        if renderer is None:
+            raise ValueError('renderer arg should not be None')
+
         scene = read_scene_from_file(self.map_name)
-        track = scene.past_ego_track[0]
-        # avoid rotation of the scene in case you want to stamp positions of the agent in the map
-        track.yaw = 0
+        #track = scene.past_ego_track[0]
+        # create virtual Track
+        track = VehicleTrack()
+        track.position.x = timestep.x
+        track.position.y = timestep.y
+        track.yaw = timestep.rot
+        track.linear_velocity.x = timestep.x_speed
+        track.linear_velocity.y = timestep.y_speed
+        track.linear_acceleration.x = timestep.x_accel
+        track.linear_acceleration.y = timestep.y_accel
+        # transform
         to_track_frame_tf = get_to_track_frame_transform(track)
         feature_maps = renderer.produce_features(scene, to_track_frame_tf)['feature_maps']
-        virtual_img = np.concatenate([feature_maps[4][np.newaxis, :, :], (feature_maps[7]*0.5)[np.newaxis, :, :]], axis=0)
+        virtual_img = np.concatenate([feature_maps[4][np.newaxis, :, :], (feature_maps[7] * 0.5)[np.newaxis, :, :]],
+                                     axis=0)
         return virtual_img
 
 
+# -------------------------------------------------------------- DATASET CLASS --------------------------------------------------------------
 class Dataset:
     """
     class to model the dataset.
@@ -258,7 +312,7 @@ class Dataset:
                     agent.indexes.append((skip, size))
 
             elif self.verbose:
-                print('Agent {} does not have enough points in the trajectory'.format(key))
+                print('NuscenesAgent {} does not have enough points in the trajectory'.format(key))
 
     def get_prediction_agents(self, size, skip=0, mode='single', overlap_points=0):
         """
