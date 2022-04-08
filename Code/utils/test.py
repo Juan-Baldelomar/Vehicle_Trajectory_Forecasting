@@ -39,8 +39,8 @@ inputQuery = InputQuery(nuscenes_loader)
 
 store = False
 
-cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=None, path='maps/masks')
-agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=None)
+cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=None, path='maps/masks', maps=nuscenes_loader.maps)
+agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=None, maps=nuscenes_loader.maps)
 
 if store:
     pass

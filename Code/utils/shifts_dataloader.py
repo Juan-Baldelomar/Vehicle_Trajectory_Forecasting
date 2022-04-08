@@ -18,6 +18,7 @@ class ShiftsLoader(Loader):
     def __init__(self, DATAROOT, pickle=True, pickle_filename='/data/shifts/data.pkl', verbose=True):
         # super constructor
         super(ShiftsLoader, self).__init__(DATAROOT, verbose)
+        self.renderer = None
         # flag to indicate if data can be loaded from pickle files
         pickle_ok: bool = os.path.isfile(pickle_filename)
 
@@ -40,7 +41,7 @@ class ShiftsLoader(Loader):
             ego_vehicle.add_step(step_id, Egostep(step.position.x, step.position.y, step.yaw))
 
     def load_data(self, chunk=(0, 1000)):
-        def get_step(track, ego, step_id):
+        def get_step(track, ego):
             speed = np.sqrt(track.linear_velocity.x**2 + track.linear_velocity.y**2)
             accel = np.sqrt(track.linear_acceleration.x ** 2 + track.linear_acceleration.y ** 2)
             agent_step = AgentTimestep(track.position.x, track.position.y, track.yaw, speed,
@@ -84,3 +85,40 @@ class ShiftsLoader(Loader):
                         self.dataset.agents[agent_id].add_step(context_id, get_step(track, ego_step))
                         # insert agent as neighbor (scene.id + i = context_id or same as step_id)
                         self.dataset.contexts[context_id].add_pred_neighbor(agent_id)
+
+    def set_renderer(self, renderer_config=None):
+        if renderer_config is None:
+            # Define a renderer config
+
+            renderer_config = {
+                # parameters of feature maps to render
+                'feature_map_params': {
+                    'rows': 512,
+                    'cols': 512,
+                    'resolution': 200 / 512.0,  # number of meters in one pixel
+                },
+                'renderers_groups': [
+                    {
+                        'time_grid_params': {
+                            'start': 24,
+                            'stop': 24,
+                            'step': 1,
+                        },
+                        'renderers': [
+                            {
+                                'road_graph': [
+                                    'crosswalk_occupancy',
+                                    'crosswalk_availability',
+                                    'lane_availability',
+                                    'lane_direction',
+                                    'lane_occupancy',
+                                    'lane_priority',
+                                    'lane_speed_limit',
+                                    'road_polygons',
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+            self.renderer = FeatureRenderer(renderer_config)

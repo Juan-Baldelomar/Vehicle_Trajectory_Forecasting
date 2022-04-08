@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from ysdc_dataset_api.utils import get_to_track_frame_transform, read_scene_from_file
 import numpy as np
 
 nusc_ends = {'singapore-onenorth': (1500, 2000),
@@ -56,18 +57,18 @@ class EgoVehicle:
 
         return neighbors_across_time
 
-    def getMasks(self, maps: dict, timestep: Egostep, path: str, name: str, height=200, width=200, canvas_size=(512, 512)):
+    def getMasks(self, timestep: Egostep, maps: dict = None, height=200, width=200, canvas_size=(512, 512)):
         """
         function to get the bitmaps of an agent's positions
         :param maps: maps dictionary
         :param timestep: angle of rotation of the masks
-        :param path: angle of rotation of the masks
-        :param name: angle of rotation of the masks
         :param height: height of the bitmap
         :param width:  width of the bitmap
         :param canvas_size:  width of the bitmap
         :return: list of bitmaps (each mask contains 2 bitmaps)
         """
+        if maps is None:
+            raise ValueError("maps arg should not be None")
         # get map
         nusc_map = maps[self.map_name]
         x, y, yaw = timestep.x, timestep.y, timestep.rot * 180 / np.pi
@@ -78,10 +79,6 @@ class EgoVehicle:
         layer_names = ['drivable_area', 'lane']
         map_mask = nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
         return map_mask
-        # for layer in layer_names:
-        #     fig, ax = nusc_map.render_map_mask(patch_box, patch_angle, [layer], canvas_size, figsize=(12, 4), n_row=1)
-        #     fig.savefig('/'.join([path, layer, name]), format="png", dpi=canvas_size[0] / 10)
-        #     plt.close(fig)
 
     def get_map(self, maps: dict, name, x_start, y_start, x_offset=100, y_offset=100, dpi=25.6):
         """
@@ -181,11 +178,15 @@ class ShiftsAgent(Agent):
     def __init__(self, agent_id, map_name):
         super(ShiftsAgent, self).__init__(agent_id, map_name)
 
-    def getMasks(self, maps: dict, timestep: Egostep, path: str, name: str,
-                 height=200, width=200, canvas_size=(512, 512)):
-
-        # get maps. Python Notebook already has how to retrieve them. Investigate how to retrieve them for a specific scene.
-        raise NotImplementedError
+    def getMasks(self, timestep: Egostep, renderer):
+        scene = read_scene_from_file(self.map_name)
+        track = scene.past_ego_track[0]
+        # avoid rotation of the scene in case you want to stamp positions of the agent in the map
+        track.yaw = 0
+        to_track_frame_tf = get_to_track_frame_transform(track)
+        feature_maps = renderer.produce_features(scene, to_track_frame_tf)['feature_maps']
+        virtual_img = np.concatenate([feature_maps[4][np.newaxis, :, :], (feature_maps[7]*0.5)[np.newaxis, :, :]], axis=0)
+        return virtual_img
 
 
 class Dataset:
@@ -196,11 +197,12 @@ class Dataset:
         so if you want to get all the neighbors from a timestep, the information is stored in this dictionary with a Context object.
     self.ego_vehicles is a dictionary similar to the agents, but with ego_vehicles information.
     """
-    def __init__(self):
+    def __init__(self, verbose=True):
         self.agents = {}
         self.non_pred_agents = {}
         self.contexts: {str: Context} = {}
         self.ego_vehicles: dict[str] = {}
+        self.verbose = verbose
 
     def add_agent(self, agent_id, agent):
         if self.agents.get(agent_id) is None:
@@ -218,4 +220,66 @@ class Dataset:
 
     def insert_context_neighbor(self, agent_id: str, context_id: str):
         self.contexts[context_id].add_pred_neighbor(agent_id)
+
+    def get_trajectories_indexes(self, size, skip=0, mode='overlap', overlap_points=0) -> np.array:
+        """
+        function to get the list of pair of indexes that indicate the start and end of a trajectory. This is done because if you
+        have trajectories that are much bigger than te size parameter, you may be interested in getting as many sub-trajectories
+        as you can from that big trajectory.
+
+        :param size indicates the number of points in the trajectory
+        :param skip indicates the number from which the first pair of indexes of each trajectory starts. This is because some datasets might
+               not have data defined in the firts observations (as nuscenes does not have speed defined in the 1st position or
+               acceleration is defined until the 3rd position so it could be usefull to skip the firts 2 observations)
+
+        :param mode indicates how to treat trajectories that are bigger than the minimum size. The following values are supported
+
+            - 'single': truncates the trajectory to the point in the <size> position, ie. agent_trajectory[0 : size]
+
+            - 'overlap': builds as many trajectories as it can using the overlap_points as the number of points that are common
+                         between two consecutive trajectories. For example if you have a minimum size = 20, overlap_points = 10
+                         and the trajectory has a lenght of 30 points, it builds two trajectories of the form [0:20], [10:30]
+
+        :param overlap_points indicates the number of points that two consecutive trajectories can have
+        :return list with tuple of indexes <(start, end)> indicating the start and end for each sub-trajectory for each agent.
+
+        """
+        for key, agent in self.agents.items():
+            agent_datasize = len(agent.timesteps)
+
+            if agent_datasize - skip >= size:
+                if mode == 'overlap':
+                    start, end = skip, size
+                    while end <= agent_datasize:
+                        agent.indexes.append((start, end))
+                        start = end - overlap_points
+                        end = start + size
+                else:
+                    agent.indexes.append((skip, size))
+
+            elif self.verbose:
+                print('Agent {} does not have enough points in the trajectory'.format(key))
+
+    def get_prediction_agents(self, size, skip=0, mode='single', overlap_points=0):
+        """
+        Sometimes datasets can be really heavy and even require transformations to the data that might result in a lot of resources
+        as time and memory invested. In that case it could be helpful to retrieve the agents keys for which you want to perform a prediction
+        in training or during inference. You could then pass this agents keys and the dictionary containing all the dataset information
+        and retrieve the information with the transformations needed with a tensorflow or pytorch pipeline. As the information is stored
+        in a dictionary, retrieving the information needed in the pipeline could be achieved in constant time.
+
+        :param size indicates the minimum size of points in the trajectory (see get_trajectories_indexes doc)
+        :param skip indicates points to skip from agents data retrived (see get_trajectories_indexes doc)
+        :param mode indicates how to treat trajectories that are bigger than the minimum size (see get_trajectories_indexes doc)
+        :param overlap_points indicates the number of points that two consecutive sub-trajectories can have
+        :return: List of agent keys
+        """
+        self.get_trajectories_indexes(size, skip, mode, overlap_points)
+        agent_keys = []
+
+        for (key, agent) in self.agents.items():
+            if len(agent.indexes > 0):
+                agent_keys.append(key)
+
+        return agent_keys
 
