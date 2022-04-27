@@ -30,15 +30,19 @@ class ShiftsLoader(Loader):
             self.load_data()
             self.save_pickle_data(pickle_filename)
 
+        ShiftsAgent.context_dict = self.dataset.contexts
+
     def load_ego_vehicles_and_context(self, ego_id, ego_steps, location=None):
-        ego_vehicle = ShiftsAgent(ego_id, location)
+        ego_vehicle = ShiftsEgoVehicle(ego_id, location)
         self.dataset.add_ego_vehicle(ego_id, ego_vehicle)
 
         for i, step in enumerate(ego_steps):
             # step_id should be the id of the context object in the Context scene
-            step_id = ego_id + '_' + i
+            step_id = ego_id + '_' + str(i)
             self.dataset.add_context(step_id, Context(step_id))
-            ego_vehicle.add_step(step_id, Egostep(step.position.x, step.position.y, step.yaw))
+            step = ShiftsEgoStep(step.position.x, step.position.y, step.yaw, step.linear_velocity.x,
+                                 step.linear_velocity.y, step.linear_acceleration.x, step.linear_acceleration.y)
+            ego_vehicle.add_step(step_id, step)
 
     def load_data(self, chunk=(0, 1000)):
         def get_step(track, ego):
@@ -55,69 +59,32 @@ class ShiftsLoader(Loader):
             prediction_requests_ids = {pr.track_id for pr in scene.prediction_requests}
             # join past and future steps
             timesteps = list(scene.past_vehicle_tracks) + list(scene.future_vehicle_tracks)
-            ego_steps = list(scene.past_ego_tracks) + list(scene.future_ego_tracks)
+            ego_steps = list(scene.past_ego_track) + list(scene.future_ego_track)
             # load ego vehicle and contexts of the scene
-            self.load_ego_vehicles_and_context(scene.id, ego_steps)
+            self.load_ego_vehicles_and_context(scene.id, ego_steps, location=path)
 
             # traverse each past timestep
             for i, (track_step, ego_step) in enumerate(zip(timesteps, ego_steps)):
-                context_id = scene.id + str(i)
+                context_id = scene.id + '_' + str(i)
                 # traverse all agents
                 for track in track_step.tracks:
                     # build a unique agent id in all dataset
-                    agent_id = scene.id + str(track.track_id)
-                    # if agent is not a candidate for prediction, add as non prediction agent
+                    agent_id = scene.id + '_' + str(track.track_id)
+                    # if agent IS NOT A CANDIDATE FOR PREDICTION, add as non prediction agent
                     if track.track_id not in prediction_requests_ids:
                         # CREATE agent if does not exist. Use path as map name (SEE ShitAgent doc)
                         if self.dataset.non_pred_agents.get(agent_id) is None:
-                            self.dataset.non_pred_agents[agent_id] = ShiftsAgent(agent_id, path)
+                            self.dataset.non_pred_agents[agent_id] = ShiftsAgent(agent_id, scene.id, path)
                         # insert timestep, step_id = context_id
                         self.dataset.non_pred_agents[agent_id].add_step(context_id, get_step(track, ego_step))
                         # insert as non prediction neighbor
-                        self.dataset.contexts[context_id].add_non_pred_agent(agent_id)
+                        self.dataset.contexts[context_id].add_non_pred_neighbor(agent_id)
                     else:
                         # CREATE agent if does not exist. Use path as map name (SEE ShitAgent doc)
                         if self.dataset.agents.get(agent_id) is None:
                             print('new agent: ', agent_id) if self.verbose else None
-                            self.dataset.agents[agent_id] = ShiftsAgent(agent_id, path)
+                            self.dataset.agents[agent_id] = ShiftsAgent(agent_id, scene.id, path)
                         # insert timestep, step_id = context_id
                         self.dataset.agents[agent_id].add_step(context_id, get_step(track, ego_step))
                         # insert agent as neighbor (scene.id + i = context_id or same as step_id)
                         self.dataset.contexts[context_id].add_pred_neighbor(agent_id)
-
-    def set_renderer(self, renderer_config=None):
-        if renderer_config is None:
-            # Define a renderer config
-
-            renderer_config = {
-                # parameters of feature maps to render
-                'feature_map_params': {
-                    'rows': 512,
-                    'cols': 512,
-                    'resolution': 200 / 512.0,  # number of meters in one pixel
-                },
-                'renderers_groups': [
-                    {
-                        'time_grid_params': {
-                            'start': 24,
-                            'stop': 24,
-                            'step': 1,
-                        },
-                        'renderers': [
-                            {
-                                'road_graph': [
-                                    'crosswalk_occupancy',
-                                    'crosswalk_availability',
-                                    'lane_availability',
-                                    'lane_direction',
-                                    'lane_occupancy',
-                                    'lane_priority',
-                                    'lane_speed_limit',
-                                    'road_polygons',
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-            self.renderer = FeatureRenderer(renderer_config)

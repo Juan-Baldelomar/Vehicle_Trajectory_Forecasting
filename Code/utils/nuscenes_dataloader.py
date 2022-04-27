@@ -115,7 +115,7 @@ class NuscenesLoader(Loader):
             # get the map_name of the agent
             location = self.nuscenes.get('log', scene['log_token'])['location']
             # add ego vehicle to dataset
-            self.dataset.add_ego_vehicle(token, EgoVehicle(token, location))
+            self.dataset.add_ego_vehicle(token, NuscenesEgoVehicle(token, location))
             # read its first sample token
             sample_token = scene['first_sample_token']
             # traverse all timesteps
@@ -161,7 +161,7 @@ class NuscenesLoader(Loader):
                 scene = self.nuscenes.get('scene', scene_token)
                 location = self.nuscenes.get('log', scene['log_token'])['location']
                 # agent does not exist, create new agent
-                agent = NuscenesAgent(instance_token, location)
+                agent = NuscenesAgent(instance_token, scene_token, location)
                 agents[instance_token] = agent
                 agent.scene_token = scene_token
 

@@ -1,6 +1,7 @@
 import numpy as np
 
 from nuscenes_dataloader import NuscenesLoader
+from shifts_dataloader import ShiftsLoader
 from InputQuery import *
 from InputQuery import verifyNan
 from InputQuery import process_nans
@@ -34,57 +35,75 @@ data_name = 'train'
 #dl.save_pkl_data(matrixes, 'nusc_inps.pkl')
 
 # ------------------------------------------------------------ multiple agents by scene ------------------------------------------------------------------
-nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=True)
-inputQuery = InputQuery(nuscenes_loader)
+# nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=True)
+# inputQuery = InputQuery(nuscenes_loader)
+#
+# store = False
+#
+# cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=None, path='maps/masks', maps=nuscenes_loader.maps)
+# agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=None, maps=nuscenes_loader.maps)
+#
+# if store:
+#     pass
+#     # remove nans
+#     #process_nans(cubes)
+#     #process_nans(agent_cubes)
+#     #verifyNan(cubes, ids)
+#     #verifyNan(agent_cubes, agent_ids)
+#     # store information
+#     #final_cubes = cubes + agent_cubes
+#     #final_ids = ids + agent_ids
+#     #dl.save_pkl_data({'inputs': final_cubes, 'ids': final_ids}, 'nusc_multiple_agents_inp.pkl')
+#
+# #nuscenes_loader.nuscenes.get('sample_annotation', '67359ca5094147f3b3b210d406873407')
+#
+# # count scenes that do have neighbors with a trajectory to forecast
+# # count = 0
+# # for vehicle in nuscenes_loader.dataset['ego_vehicles'].values():
+# #     for timestep in vehicle.values():
+# #         if len(timestep['neighbors']) > 0:
+# #             count += 1
+# #             break
 
-store = False
+# -------------------------------------------------------------------- SHIFTS --------------------------------------------------------------------
+dataroot = '/data/shifts/data/development'
+shifts_loader = ShiftsLoader(DATAROOT=dataroot, pickle=True)
+shifts_loader.dataset.get_ego_indexes(50)
+inputQuery = InputQuery(shifts_loader)
 
-cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=None, path='maps/masks', maps=nuscenes_loader.maps)
-agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=None, maps=nuscenes_loader.maps)
+ego_iter = iter(shifts_loader.dataset.ego_vehicles.items())
+ego_id, ego_vehicle = next(ego_iter)
 
-if store:
-    pass
-    # remove nans
-    #process_nans(cubes)
-    #process_nans(agent_cubes)
-    #verifyNan(cubes, ids)
-    #verifyNan(agent_cubes, agent_ids)
-    # store information
-    #final_cubes = cubes + agent_cubes
-    #final_ids = ids + agent_ids
-    #dl.save_pkl_data({'inputs': final_cubes, 'ids': final_ids}, 'nusc_multiple_agents_inp.pkl')
+shifts_bitmap = ShiftsBitmap()
 
-#nuscenes_loader.nuscenes.get('sample_annotation', '67359ca5094147f3b3b210d406873407')
+inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
+                                        24, bitmap_extractor=shifts_bitmap)
 
-# count scenes that do have neighbors with a trajectory to forecast
-# count = 0
-# for vehicle in nuscenes_loader.dataset['ego_vehicles'].values():
-#     for timestep in vehicle.values():
-#         if len(timestep['neighbors']) > 0:
-#             count += 1
-#             break
+yaw = list(ego_vehicle.timesteps.values())[24].rot #* 180.0/np.pi
+bitmaps = stamp_positions_in_bitmap(inps[0], inps[2], 512/200.0, yaw)
+bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
 
-# -------------------------------------------------------------------- MAPA --------------------------------------------------------------------
+# v_track = VehicleTrack()
+# origin = list(ego_vehicle.timesteps.values())[24]
+# v_track.position.x = origin.x
+# v_track.position.y = origin.y
+# v_track.yaw = origin.rot
+# v_track.linear_velocity.x = origin.x_speed
+#
+# positions = stamp_by_hand(inps[0], v_track)
+# plt.figure(figsize=(10, 10))
+# plt.imshow(positions)
+# plt.show()
+# plt.figure(figsize=(10, 10))
+#
+# plt.imshow(bitmaps[0][0], origin='lower', cmap='binary', alpha=1.0)
+# #plt.imshow(out['feature_maps'][4], origin='lower', cmap='binary', alpha=0.7)
+# plt.imshow(bitmaps[0][1], origin='lower', cmap='binary', alpha=0.5)
+# plt.imshow(bitmaps[0][2], origin='lower', cmap='binary', alpha=0.3)
 
-
-# This is the path where you stored your copy of the nuScenes dataset.
-#DATAROOT = dataroot
-
-# nuscenes = NuScenes('v1.0-mini', dataroot=DATAROOT)
-# helper = PredictHelper(nuscenes)
-# mini_train = get_prediction_challenge_split("mini_train", dataroot=DATAROOT)
-# toks = [x.split('_') for x in mini_train]
-
-#nusc_map = NuScenesMap(dataroot=dataroot, map_name='singapore-onenorth')
-#fig, ax = nusc_map.render_layers(nusc_map.non_geometric_layers, figsize=2)
-#fig.show()
-
-
-#nuscenes_loader.plotMasks(agents_list[0])
-
-
-
-
+plt.figure(figsize=(10, 10))
+plt.imshow(bitmaps[0])
+plt.show()
 # ------------------------------------------------------------------------- TEST -------------------------------------------------------------------------
 
 # # PATH

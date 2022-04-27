@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from ysdc_dataset_api.utils import get_to_track_frame_transform, read_scene_from_file, VehicleTrack
+from ysdc_dataset_api.features import FeatureRenderer
 import numpy as np
 
 nusc_ends = {'singapore-onenorth': (1500, 2000),
@@ -17,7 +18,8 @@ class AgentTimestep:
 
 
 class Agent:
-    def __init__(self, agent_id, map_name=None):
+    def __init__(self, agent_id, ego_id, map_name=None):
+        self.ego_id = ego_id
         self.agent_id = agent_id
         self.indexes = []
         self.map_name = map_name
@@ -27,10 +29,23 @@ class Agent:
         if self.timesteps.get(step_id) is None:
             self.timesteps[step_id] = step
 
-    def get_neighbors(self, *args):
-        raise NotImplementedError
+    def init_neighbors(self):
+        return {self.agent_id: 1}
 
-    def getMasks(self, timestep: AgentTimestep, **kwargs):
+
+class EgoVehicle(Agent):
+    def __init__(self, agent_id, ego_id, map_name=None):
+        super(EgoVehicle, self).__init__(agent_id, ego_id, map_name)
+
+    def init_neighbors(self):
+        return {}
+
+
+class BitmapFeature:
+    def __init__(self):
+        pass
+
+    def getMasks(self, timestep: AgentTimestep, map_name, **kwargs):
         raise NotImplementedError
 
 
@@ -58,36 +73,25 @@ class Egostep(AgentTimestep):
         super(Egostep, self).__init__(x, y, rot)
 
 
-class EgoVehicle(Agent):
-    def __init__(self, ego_id, map_name=None):
-        super(EgoVehicle, self).__init__(ego_id, map_name)
+class NuscenesBitmap(BitmapFeature):
+    def __init__(self):
+        super(NuscenesBitmap, self).__init__()
 
-    def get_neighbors(self, context_pool):
-        """
-        :param context_pool: dictionary of Context objects
-        :return:
-        """
-        neighbors_across_time = set()
-        for timestep_id, ego_step in self.timesteps.items():
-            for neighbor in context_pool[timestep_id].neighbors:
-                neighbors_across_time.add(neighbor)
-
-        return neighbors_across_time
-
-    def getMasks(self, timestep: Egostep, maps: dict = None, height=200, width=200, canvas_size=(512, 512)):
+    def getMasks(self, timestep: Egostep, map_name, maps: dict = None, height=200, width=200, canvas_size=(512, 512)):
         """
         function to get the bitmaps of an agent's positions
-        :param maps: maps dictionary
-        :param timestep: angle of rotation of the masks
-        :param height: height of the bitmap
-        :param width:  width of the bitmap
-        :param canvas_size:  width of the bitmap
-        :return: list of bitmaps (each mask contains 2 bitmaps)
+        :param timestep   : angle of rotation of the masks
+        :param map_name   : map name attribute from where to retrieve the map (nuscenes case: string that indicates dict key)
+        :param maps       : maps dictionary
+        :param height     : height of the bitmap
+        :param width      : width of the bitmap
+        :param canvas_size: width of the bitmap
+        :return           : list of bitmaps (each mask contains 2 bitmaps)
         """
         if maps is None:
             raise ValueError("maps arg should not be None")
         # get map
-        nusc_map = maps[self.map_name]
+        nusc_map = maps[map_name]
         x, y, yaw = timestep.x, timestep.y, timestep.rot * 180 / np.pi
 
         # build patch
@@ -119,7 +123,6 @@ class EgoVehicle(Agent):
         plt.close(fig)
 
 
-# **************************************  non ego vehicle agent **************************************
 class NuscenesAgentTimestep(Egostep):
     def __init__(self, x: float, y: float, rot, speed: float, accel: float,
                  heading_rate: float, ego_pos_x: float, ego_pos_y: float, ego_rot):
@@ -133,11 +136,30 @@ class NuscenesAgentTimestep(Egostep):
         self.ego_rot = ego_rot
 
 
-class NuscenesAgent(EgoVehicle):
-    context_dict = None
+# **************************************  non ego vehicle agent **************************************
+class NuscenesEgoVehicle(EgoVehicle):
+    def __init__(self, ego_id, map_name=None):
+        super(NuscenesEgoVehicle, self).__init__(ego_id, ego_id, map_name)
 
-    def __init__(self, agent_id, map_name):
-        super(NuscenesAgent, self).__init__(agent_id, map_name)
+    def get_features(self, timestep_id, origin_timestep=None):
+        x_o, y_o, origin_rot = 0, 0, 0
+        if origin_timestep is not None:
+            x_o = origin_timestep.x
+            y_o = origin_timestep.y
+            origin_rot = origin_timestep.rot
+
+        agent_time_step = self.timesteps[timestep_id]
+        x_pos = agent_time_step.x - x_o
+        y_pos = agent_time_step.y - y_o
+        vel = agent_time_step.speed
+        acc = agent_time_step.accel
+        rel_rot = agent_time_step.rot - origin_rot
+        return x_pos, y_pos, rel_rot, vel, acc
+
+
+class NuscenesAgent(Agent):
+    def __init__(self, agent_id, ego_id, map_name):
+        super(NuscenesAgent, self).__init__(agent_id, ego_id, map_name)
         self.scene_token = None
 
     def add_step(self, step_id: str, agent_step: NuscenesAgentTimestep):
@@ -149,29 +171,7 @@ class NuscenesAgent(EgoVehicle):
         y_final = min(ends[1], y_start + y_offset)
         return x_start, y_start, x_final, y_final
 
-    # return list of unique neighbors through all the trajectory
-    def get_neighbors(self, kth_traj):
-        if len(self.indexes) == 0:
-            return None
-
-        start, end = self.indexes[kth_traj]
-        keys = list(self.timesteps.keys())
-        neighbors = {}
-        pos_available = 0
-
-        # traverse all contexts (sample_annotation)
-        for key in keys[start: end]:
-            context = NuscenesAgent.context_dict[key]
-
-            # traverse all neighbors and add the ones that are not yet
-            for neighbor_id in context.neighbors:
-                if neighbors.get(neighbor_id) is None:
-                    neighbors[neighbor_id] = pos_available
-                    pos_available += 1
-
-        return neighbors
-
-    def get_features(self, timestep_id, origin_timestep=None, use_ego=True):
+    def get_features(self, timestep_id, origin_timestep=None):
         x_o, y_o, origin_rot = 0, 0, 0
         if origin_timestep is not None:
             x_o = origin_timestep.x
@@ -188,43 +188,39 @@ class NuscenesAgent(EgoVehicle):
 
 
 # -------------------------------------------------------------- SHIFTS IMPLEMENTATIONS --------------------------------------------------------------
-class ShiftTimeStep(AgentTimestep):
+class ShiftsEgoStep(AgentTimestep):
     def __init__(self, x: float, y: float, rot: float, x_speed: float, y_speed: float, x_accel: float,
-                 y_accel: float, ego_pos_x: float, ego_pos_y: float, ego_rot: float):
-        super(ShiftTimeStep, self).__init__(x, y, rot)
+                 y_accel: float):
+        super(ShiftsEgoStep, self).__init__(x, y, rot)
         self.x_speed = x_speed
         self.x_accel = x_accel
         self.y_speed = y_speed
         self.y_accel = y_accel
         self.speed = np.sqrt(x_speed ** 2 + y_speed ** 2)
         self.accel = np.sqrt(x_accel ** 2 + y_accel ** 2)
+
+
+class ShiftTimeStep(ShiftsEgoStep):
+    def __init__(self, x: float, y: float, rot: float, x_speed: float, y_speed: float, x_accel: float,
+                 y_accel: float, ego_pos_x: float, ego_pos_y: float, ego_rot: float):
+        super(ShiftTimeStep, self).__init__(x, y, rot, x_speed, y_speed, x_accel, y_accel)
         self.ego_pos_x = ego_pos_x
         self.ego_pos_y = ego_pos_y
         self.ego_rot = ego_rot
 
 
-class ShiftsAgent(Agent):
-    def __init__(self, agent_id, map_name=None):
-        super(ShiftsAgent, self).__init__(agent_id, map_name)
+class ShiftsBitmap(BitmapFeature):
+    def __init__(self):
+        super(ShiftsBitmap, self).__init__()
+        self.renderer = None
 
-    def get_neighbors(self, context_pool):
-        """
-        :param context_pool: dictionary of Context objects
-        :return:
-        """
-        neighbors_across_time = set()
-        for timestep_id, ego_step in self.timesteps.items():
-            for neighbor in context_pool[timestep_id].neighbors:
-                neighbors_across_time.add(neighbor)
+    def getMasks(self, timestep: ShiftTimeStep, map_name, renderer_conf=None):
+        if self.renderer is None:
+            print('[WARN] self.renderer should not be None, calling self.set_renderer()')
+            self.set_renderer(renderer_conf)
 
-        return neighbors_across_time
-
-    def getMasks(self, timestep: ShiftTimeStep, renderer=None):
-        if renderer is None:
-            raise ValueError('renderer arg should not be None')
-
-        scene = read_scene_from_file(self.map_name)
-        #track = scene.past_ego_track[0]
+        scene = read_scene_from_file(map_name)
+        # track = scene.past_ego_track[0]
         # create virtual Track
         track = VehicleTrack()
         track.position.x = timestep.x
@@ -236,10 +232,86 @@ class ShiftsAgent(Agent):
         track.linear_acceleration.y = timestep.y_accel
         # transform
         to_track_frame_tf = get_to_track_frame_transform(track)
-        feature_maps = renderer.produce_features(scene, to_track_frame_tf)['feature_maps']
+        feature_maps = self.renderer.produce_features(scene, to_track_frame_tf)['feature_maps']
         virtual_img = np.concatenate([feature_maps[4][np.newaxis, :, :], (feature_maps[7] * 0.5)[np.newaxis, :, :]],
                                      axis=0)
         return virtual_img
+
+    def set_renderer(self, renderer_config=None):
+        if renderer_config is None:
+            # Define a renderer config
+            renderer_config = {
+                # parameters of feature maps to render
+                'feature_map_params': {
+                    'rows': 512,
+                    'cols': 512,
+                    'resolution': 200 / 512.0,  # number of meters in one pixel
+                },
+                'renderers_groups': [
+                    {
+                        'time_grid_params': {
+                            'start': 24,
+                            'stop': 24,
+                            'step': 1,
+                        },
+                        'renderers': [
+                            {
+                                'road_graph': [
+                                    'crosswalk_occupancy',
+                                    'crosswalk_availability',
+                                    'lane_availability',
+                                    'lane_direction',
+                                    'lane_occupancy',
+                                    'lane_priority',
+                                    'lane_speed_limit',
+                                    'road_polygons',
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+            self.renderer = FeatureRenderer(renderer_config)
+
+
+class ShiftsEgoVehicle(EgoVehicle):
+    def __init__(self, agent_id, map_name=None):
+        super(ShiftsEgoVehicle, self).__init__(agent_id, agent_id, map_name)
+
+    def get_features(self, timestep_id, origin_timestep=None):
+        x_o, y_o, origin_rot = 0, 0, 0
+        if origin_timestep is not None:
+            x_o = origin_timestep.x
+            y_o = origin_timestep.y
+            origin_rot = origin_timestep.rot
+
+        agent_time_step = self.timesteps[timestep_id]
+        x_pos = agent_time_step.x - x_o
+        y_pos = agent_time_step.y - y_o
+        vel = agent_time_step.speed
+        acc = agent_time_step.accel
+        rel_rot = agent_time_step.rot - origin_rot
+        return x_pos, y_pos, rel_rot, vel, acc
+
+
+class ShiftsAgent(Agent):
+    def __init__(self, agent_id, ego_id, map_name=None):
+        super(ShiftsAgent, self).__init__(agent_id, ego_id, map_name)
+
+    def get_features(self, timestep_id, origin_timestep=None):
+        x_o, y_o, origin_rot = 0, 0, 0
+        if origin_timestep is not None:
+            x_o = origin_timestep.x
+            y_o = origin_timestep.y
+            origin_rot = origin_timestep.rot
+
+        agent_time_step = self.timesteps[timestep_id]
+        x_pos = agent_time_step.x - x_o
+        y_pos = agent_time_step.y - y_o
+        vel = agent_time_step.speed
+        acc = agent_time_step.accel
+        rel_rot = agent_time_step.rot - origin_rot
+        return x_pos, y_pos, rel_rot, vel, acc
 
 
 # -------------------------------------------------------------- DATASET CLASS --------------------------------------------------------------
@@ -312,7 +384,49 @@ class Dataset:
                     agent.indexes.append((skip, size))
 
             elif self.verbose:
-                print('NuscenesAgent {} does not have enough points in the trajectory'.format(key))
+                print('Agent {} does not have enough points in the trajectory'.format(key))
+
+    # get index of start and end of a trajectory for the ego vehicle
+    def get_ego_indexes(self, L=-1, overlap=0, min_neighbors=0):
+        ego_vehicles: dict = self.ego_vehicles
+        for ego_id, ego_vehicle in ego_vehicles.items():
+            timesteps = list(ego_vehicle.timesteps.keys())
+            if L == -1:
+                ego_vehicle.indexes.append((0, len(timesteps)))
+            else:
+                start, end = 0, L
+                while end <= len(timesteps):
+                    # verify if start has enough neighbors as requested
+                    if len(self.contexts[timesteps[start]].neighbors) < min_neighbors:
+                        start += 1
+                        end += 1
+                        continue
+                    # verify if trajectory can be built
+                    if end <= len(timesteps):
+                        ego_vehicle.indexes.append((start, end))
+                        start = end - overlap
+                        end = start + L
+
+    def get_agent_neighbors(self, agent: Agent, kth_traj):
+        if len(agent.indexes) == 0:
+            return None
+        # get start and end of trajectory
+        start, end = agent.indexes[kth_traj]
+        # get timestep keys
+        timestep_keys = list(agent.timesteps.keys())
+        # first neighbor is always the agent itself
+        neighbors = agent.init_neighbors()
+        pos_available = len(neighbors) + 1              # +1 to account for the fact that ego-vehicle occupies position 0
+
+        # traverse all contexts (sample_annotation)
+        for key in timestep_keys[start: end]:
+            # traverse all neighbors and add the ones that are not yet
+            for neighbor_id in self.contexts[key].neighbors:
+                if neighbors.get(neighbor_id) is None:
+                    neighbors[neighbor_id] = pos_available
+                    pos_available += 1
+
+        return neighbors
 
     def get_prediction_agents(self, size, skip=0, mode='single', overlap_points=0):
         """
