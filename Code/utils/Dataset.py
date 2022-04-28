@@ -243,9 +243,9 @@ class ShiftsBitmap(BitmapFeature):
             renderer_config = {
                 # parameters of feature maps to render
                 'feature_map_params': {
-                    'rows': 512,
-                    'cols': 512,
-                    'resolution': 200 / 512.0,  # number of meters in one pixel
+                    'rows': 256,
+                    'cols': 256,
+                    'resolution': 200 / 256.0,  # number of meters in one pixel
                 },
                 'renderers_groups': [
                     {
@@ -371,12 +371,12 @@ class Dataset:
 
         """
         for key, agent in self.agents.items():
-            agent_datasize = len(agent.timesteps)
+            n_timesteps = len(agent.timesteps)
 
-            if agent_datasize - skip >= size:
+            if n_timesteps - skip >= size:
                 if mode == 'overlap':
                     start, end = skip, size
-                    while end <= agent_datasize:
+                    while end <= n_timesteps:
                         agent.indexes.append((start, end))
                         start = end - overlap_points
                         end = start + size

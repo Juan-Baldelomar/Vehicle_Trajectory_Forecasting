@@ -143,65 +143,45 @@ def split_single_input(inputTensor, inputMask, inp_seq_l, tar_seq_l):
     return inp, inp_mask, tar, tar_mask
 
 
-def stamp_positions_in_bitmap(inputs: np.ndarray, bitmaps: np.ndarray, pixbymeter: float, yaw, offset: int = -1):
+def stamp_positions_in_bitmap(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray, pixbymeter: float, yaw, step_start=-1, step_end=1):
     """
     :param: inputs    : np array of the form (S, N, F). S=sequence, N=Neighbors, F=Features (x=0, y=1).
-    :param: bitmaps   : np array of the form (N, L, H, W). N=Neighbors, L=Layers, H=Height, W=Width.
+    :param: masks     : np array of the form (S, N). S=sequence, N=Neighbors. Indicates thoses entries that are padded.
+    :param: bitmaps   : np array of the form (L, H, W). L=Layers, H=Height, W=Width.
     :param: pixbymeter: relation of number of pixels by each meter
-    :param: offset    : origin offset to retrieve yaw to perform rotation. IF -1, do not rotate
+    :param: yaw       : rotation angle of the points (if map was rotated, trajectories should be rotated by the same angle)
+    :param: step start: when stamping the step of and agent, a pixel width might be to small, so you can make it bigger by setting the step_start
+                        and step_end, so you stamp all the pixels in the range (pos + step_start, pos + step_end)
     """
+    assert(step_start <= 0 and step_end >= 0)
     # needed shapes
-    N, _, H, W = bitmaps.shape
-    S, _, _ = inputs.shape
+    S, N, _ = inputs.shape
+    n_layers, H, W = bitmaps.shape
+    neigh_bitmaps = np.ones([N, n_layers, H, W]) * bitmaps[np.newaxis, :, :, :]
     # center pixels
     x_p, y_p = H / 2., W / 2.
-    # get x, y, and yaw for each observation
-    x = inputs[:, :, 0]
-    y = inputs[:, :, 1]
-    #yaw = inputs[offset, :, 2][np.newaxis, :]
+    # get x, y for each observation, select the points that are not padded (masks==0) and get array flattened
+    x = inputs[:, :, 0][masks == 0]
+    y = inputs[:, :, 1][masks == 0]
     # perform rotation (clockwise)
     pix_x = x * np.cos(yaw) + y * np.sin(yaw)
     pix_y = -x * np.sin(yaw) + y * np.cos(yaw)
     # transform to pixel position
     pix_x = (pix_x * pixbymeter + x_p).astype(np.int32)
     pix_y = (pix_y * pixbymeter + y_p).astype(np.int32)
-    # get neighbor dimension indexes
+    # get neighbor dimension indexes, select the ones that are not padded and get array flattened
     N_pos = np.arange(N)[np.newaxis, :] * np.ones([S, N]).astype(np.int32)
-    # flatten all values
-    pix_x = np.reshape(pix_x, -1)
-    pix_y = np.reshape(pix_y, -1)
-    N_pos = np.reshape(N_pos, -1)
+    N_pos = N_pos[masks == 0]
     # build positions layers
     stamped_positions = np.zeros((N, H, W))
     # stamp values
-    for i in range(-1, 2):
-        for j in range(-1, 2):
+    for i in range(step_start, step_end + 1):
+        for j in range(step_start, step_end + 1):
             stamped_positions[(N_pos, pix_y + i, pix_x + j)] = 255.0
     # append new layer
-    bitmaps = np.append(bitmaps, stamped_positions[:, np.newaxis, :, :], axis=1)
+    neigh_bitmaps = np.append(neigh_bitmaps, stamped_positions[:, np.newaxis, :, :], axis=1)
 
-    return bitmaps
-
-
-def stamp_by_hand(inp, track):
-    pixelbymeter = 512 / 200.0
-    positions = np.zeros([512, 512])
-    # x_c, y_c = track.position.x, track.position.y
-    x_c, y_c = 512 / 2.0, 512 / 2.0
-    for step in inp[:, 0, :]:
-        x, y = step[0], step[1]
-        yaw = track.yaw
-
-        real_x = x
-        real_y = y
-        rot_x = real_x * np.cos(yaw) + real_y * np.sin(yaw)
-        rot_y = -real_x * np.sin(yaw) + real_y * np.cos(yaw)
-        real_x = int((rot_x) * pixelbymeter + x_c)
-        real_y = int((rot_y) * pixelbymeter + y_c)
-        print(real_x, " ", real_y)
-        positions[real_y - 1:real_y + 1, real_x - 1:real_x + 1] = 255.0
-
-    return positions
+    return neigh_bitmaps
 
 
 class InputQuery:
@@ -236,7 +216,7 @@ class InputQuery:
         # get bitmaps for center agent (ego vehicle or agent treated as ego vehicle)
         if bitmap_extractor is not None:
             bitmaps = bitmap_extractor.getMasks(origin_timestep, agent.map_name, **kwargs)
-            neigh_bitmaps = neigh_bitmaps * bitmaps[np.newaxis, :, :, :]
+            #neigh_bitmaps = neigh_bitmaps * bitmaps[np.newaxis, :, :, :]
 
         # available positions start from 1 because ego vehicle occupies position 0.
         neighbors_positions = self.dataset.get_agent_neighbors(agent, seq_number)
@@ -264,11 +244,11 @@ class InputQuery:
                 # turn off mask in this position
                 inputMask[s_index, neighbor_pos] = 0
 
-        return inputTensor, inputMask, neigh_bitmaps
+        return inputTensor, inputMask, bitmaps
 
 # ---------------------------------------------------------------- FUNCTIONS TO BUILD INPUTS ----------------------------------------------------------------
 
-    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps: str = None, path='maps', **kwargs):
+    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, bitmap_extractor: BitmapFeature = None, path='maps', **kwargs):
         # get indexes of the sequences
         self.dataset.get_ego_indexes(inp_seq_l + tar_seq_l)
         # USEFUL VARIABLES
@@ -278,18 +258,20 @@ class InputQuery:
         # max sequence lenght
         total_seq_l = inp_seq_l + tar_seq_l
 
+        # traverse all ego vehicles
         for ego_id, ego_vehicle in ego_vehicles.items():
+            # traverse all the possible trajectories for and ego vehicle
             for i, (_, _) in enumerate(ego_vehicle.indexes):
                 # get inputTensor and its mask centered in egovehicle
                 inputTensor, inputMask, bitmaps = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
-                                                                             offset=offset, get_maps=get_maps, **kwargs)
+                                                                             offset=offset, bitmap_extractor=bitmap_extractor, **kwargs)
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
                 # split trajectories into input and target
                 inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
                 list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
                 # save bitmaps and store name
-                if get_maps:
-                    name = ego_id + '_' + str(i) + '.png'
+                if bitmap_extractor is not None:
+                    name = ego_id + '_' + str(i)
                     list_agent_ids.append(name)
                     np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
 

@@ -68,7 +68,7 @@ data_name = 'train'
 # -------------------------------------------------------------------- SHIFTS --------------------------------------------------------------------
 dataroot = '/data/shifts/data/development'
 shifts_loader = ShiftsLoader(DATAROOT=dataroot, pickle=True)
-shifts_loader.dataset.get_ego_indexes(50)
+#shifts_loader.dataset.get_ego_indexes(L=50)
 inputQuery = InputQuery(shifts_loader)
 
 ego_iter = iter(shifts_loader.dataset.ego_vehicles.items())
@@ -76,12 +76,29 @@ ego_id, ego_vehicle = next(ego_iter)
 
 shifts_bitmap = ShiftsBitmap()
 
-inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
-                                        24, bitmap_extractor=shifts_bitmap)
+queried_data = inputQuery.get_TransformerCube_Input(25, 25, 5, 24, shifts_bitmap, 'maps/shifts')
 
-yaw = list(ego_vehicle.timesteps.values())[24].rot #* 180.0/np.pi
-bitmaps = stamp_positions_in_bitmap(inps[0], inps[2], 512/200.0, yaw)
+file_id = '47762072c090c2cfdb4123d28225f935_0.npz'
+ego_vehicle = shifts_loader.dataset.ego_vehicles['47762072c090c2cfdb4123d28225f935']
+
+img_comp = np.load('maps/shifts/47762072c090c2cfdb4123d28225f935_0.npz')
+img = img_comp['bitmaps']
+img = np.transpose(img, [1, 2, 0])
+plt.figure(figsize=(10, 10))
+plt.imshow(img[:, :, 1])
+plt.show()
+
+
+inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
+                                         24, bitmap_extractor=shifts_bitmap)
+
+#
+yaw = list(ego_vehicle.timesteps.values())[24].rot
+bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256/200.0, yaw)
 bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
+plt.figure(figsize=(10, 10))
+plt.imshow(bitmaps[3])
+plt.show()
 
 # v_track = VehicleTrack()
 # origin = list(ego_vehicle.timesteps.values())[24]
@@ -101,9 +118,7 @@ bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
 # plt.imshow(bitmaps[0][1], origin='lower', cmap='binary', alpha=0.5)
 # plt.imshow(bitmaps[0][2], origin='lower', cmap='binary', alpha=0.3)
 
-plt.figure(figsize=(10, 10))
-plt.imshow(bitmaps[0])
-plt.show()
+
 # ------------------------------------------------------------------------- TEST -------------------------------------------------------------------------
 
 # # PATH
