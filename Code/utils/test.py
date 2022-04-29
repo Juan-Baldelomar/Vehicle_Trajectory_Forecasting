@@ -7,22 +7,21 @@ from InputQuery import verifyNan
 from InputQuery import process_nans
 import dataloader as dl
 
-
 # PATH
 dataroot_base = '/data/sets/nuscenes'
 dataroot_train = '/media/juan/Elements'
 
 # dataset attributes
 dataroot = dataroot_train + dataroot_base
-#dataroot = dataroot_base
+# dataroot = dataroot_base
 
 # VERSION
 version = 'v1.0-trainval'
-#version = 'v1.0-mini'
+# version = 'v1.0-mini'
 
 # NAME
 data_name = 'train'
-#data_name = 'mini_train'
+# data_name = 'mini_train'
 
 
 # nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=False)
@@ -32,7 +31,7 @@ data_name = 'train'
 # matrixes, ids = inputQuery.get_single_Input(7, 8, 7)
 
 
-#dl.save_pkl_data(matrixes, 'nusc_inps.pkl')
+# dl.save_pkl_data(matrixes, 'nusc_inps.pkl')
 
 # ------------------------------------------------------------ multiple agents by scene ------------------------------------------------------------------
 # nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=True)
@@ -40,8 +39,9 @@ data_name = 'train'
 #
 # store = False
 #
-# cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, get_maps=None, path='maps/masks', maps=nuscenes_loader.maps)
-# agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, get_maps=None, maps=nuscenes_loader.maps)
+# nuscenes_bitmap = NuscenesBitmap(nuscenes_loader.maps)
+# cubes, ids = inputQuery.get_TransformerCube_Input(8, 7, 10, offset=7, bitmap_extractor=nuscenes_bitmap, path='maps/masks')
+# agent_cubes, agent_ids = inputQuery.get_input_ego_change(8, 7, 10, offset=7, bitmap_extractor=nuscenes_bitmap)
 #
 # if store:
 #     pass
@@ -68,7 +68,7 @@ data_name = 'train'
 # -------------------------------------------------------------------- SHIFTS --------------------------------------------------------------------
 dataroot = '/data/shifts/data/development'
 shifts_loader = ShiftsLoader(DATAROOT=dataroot, pickle=True)
-#shifts_loader.dataset.get_ego_indexes(L=50)
+# shifts_loader.dataset.get_ego_indexes(L=50)
 inputQuery = InputQuery(shifts_loader)
 
 ego_iter = iter(shifts_loader.dataset.ego_vehicles.items())
@@ -88,13 +88,12 @@ plt.figure(figsize=(10, 10))
 plt.imshow(img[:, :, 1])
 plt.show()
 
-
 inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
-                                         24, bitmap_extractor=shifts_bitmap)
+                                        24, bitmap_extractor=shifts_bitmap)
 
 #
 yaw = list(ego_vehicle.timesteps.values())[24].rot
-bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256/200.0, yaw)
+bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256 / 200.0, yaw)
 bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
 plt.figure(figsize=(10, 10))
 plt.imshow(bitmaps[3])

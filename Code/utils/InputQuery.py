@@ -248,11 +248,12 @@ class InputQuery:
 
 # ---------------------------------------------------------------- FUNCTIONS TO BUILD INPUTS ----------------------------------------------------------------
 
-    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, bitmap_extractor: BitmapFeature = None, path='maps', **kwargs):
+    def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, use_ego_vehicles=True,
+                                  bitmap_extractor: BitmapFeature = None, path='maps', **kwargs):
         # get indexes of the sequences
-        self.dataset.get_ego_indexes(inp_seq_l + tar_seq_l)
+        self.dataset.get_trajectories_indexes(use_ego_vehicles=use_ego_vehicles, L=inp_seq_l + tar_seq_l)
         # USEFUL VARIABLES
-        ego_vehicles: dict = self.dataset.ego_vehicles
+        ego_vehicles: dict = self.dataset.ego_vehicles if use_ego_vehicles else self.dataset.agents
         agents: dict = self.dataset.agents
         list_inputs, list_agent_ids = [], []
         # max sequence lenght
@@ -276,32 +277,6 @@ class InputQuery:
                     np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
 
         # return inputs
-        return list_inputs, list_agent_ids
-
-    def get_input_ego_change(self, inp_seq_l, tar_seq_l, N, offset=-1, get_maps: str = None, path='maps', **kwargs):
-        self.dataset.get_trajectories_indexes(size=inp_seq_l + tar_seq_l, mode='overlap', overlap_points=tar_seq_l)
-        # useful variables
-        agents: dict = self.dataset.agents
-        list_inputs, list_agent_ids = [], []
-        total_seq_l = inp_seq_l + tar_seq_l
-
-        for agent_id, agent in agents.items():
-            # traverse trajectories for agent
-            for i, (_, _) in enumerate(agent.indexes):
-                # input cubes for agent
-                inputTensor, inputMask, bitmaps = self.get_egocentered_input(agent, agents, total_seq_l, N, seq_number=i,
-                                                                             offset=offset, get_maps=get_maps, **kwargs)
-                seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
-                # split inputs into past and future
-                inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
-                list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
-                # save bitmaps and store name
-                if get_maps:
-                    name = agent_id + '_' + str(i) + '.png'
-                    list_agent_ids.append(name)
-                    np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
-
-        # close for agent_id in agent.keys()
         return list_inputs, list_agent_ids
 
     def get_single_Input(self, inp_seq_l, tar_seq_l, offset=-1):

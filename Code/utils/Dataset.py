@@ -3,11 +3,6 @@ from ysdc_dataset_api.utils import get_to_track_frame_transform, read_scene_from
 from ysdc_dataset_api.features import FeatureRenderer
 import numpy as np
 
-nusc_ends = {'singapore-onenorth': (1500, 2000),
-             'singapore-queenstown': (3200, 3500),
-             'singapore-hollandvillage': (2700, 3000),
-             'boston-seaport': (3000, 2200)}
-
 
 # --------------------------------------------------------------------------- BASE CLASS ---------------------------------------------------------------------------
 class AgentTimestep:
@@ -74,26 +69,29 @@ class Egostep(AgentTimestep):
 
 
 class NuscenesBitmap(BitmapFeature):
-    def __init__(self):
+    def __init__(self, maps):
         super(NuscenesBitmap, self).__init__()
+        self.maps = maps
+        self.nusc_ends = {'singapore-onenorth': (1500, 2000),
+                          'singapore-queenstown': (3200, 3500),
+                          'singapore-hollandvillage': (2700, 3000),
+                          'boston-seaport': (3000, 2200)}
 
-    def getMasks(self, timestep: Egostep, map_name, maps: dict = None, height=200, width=200, canvas_size=(512, 512)):
+    def getMasks(self, timestep: Egostep, map_name, height=200, width=200, canvas_size=(512, 512)):
         """
         function to get the bitmaps of an agent's positions
         :param timestep   : angle of rotation of the masks
         :param map_name   : map name attribute from where to retrieve the map (nuscenes case: string that indicates dict key)
-        :param maps       : maps dictionary
         :param height     : height of the bitmap
         :param width      : width of the bitmap
         :param canvas_size: width of the bitmap
         :return           : list of bitmaps (each mask contains 2 bitmaps)
         """
-        if maps is None:
+        if self.maps is None:
             raise ValueError("maps arg should not be None")
         # get map
-        nusc_map = maps[map_name]
+        nusc_map = self.maps[map_name]
         x, y, yaw = timestep.x, timestep.y, timestep.rot * 180 / np.pi
-
         # build patch
         patch_box = (x, y, height, width)
         patch_angle = 0  # Default orientation (yaw=0) where North is up
@@ -101,10 +99,9 @@ class NuscenesBitmap(BitmapFeature):
         map_mask = nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
         return map_mask
 
-    def get_map(self, maps: dict, name, x_start, y_start, x_offset=100, y_offset=100, dpi=25.6):
+    def get_map(self, name, x_start, y_start, x_offset=100, y_offset=100, dpi=25.6):
         """
         function to store map from desired coordinates
-        :param maps: map dictionary that containts the name as key and map object as value
         :param name: name of the file to store the map
         :param x_start: x coordinate from which to show map
         :param y_start: y coordinate from which to show map
@@ -113,7 +110,7 @@ class NuscenesBitmap(BitmapFeature):
         :param dpi: resolution of image, example 25.6  gets an image of 256 x 256 pixels
         :return: None
         """
-        nusc_map, ends = maps[self.map_name], nusc_ends[self.map_name]
+        nusc_map, ends = self.maps[self.map_name], self.nusc_ends[self.map_name]
         x_final = min(ends[0], x_start + x_offset)
         y_final = min(ends[1], y_start + y_offset)
         my_patch = (x_start, y_start, x_final, y_final)
@@ -318,10 +315,18 @@ class ShiftsAgent(Agent):
 class Dataset:
     """
     class to model the dataset.
-    self.agents is a dictionary that stores agent information with agent_id as key and agent object as value
-    self.contexts is a dictionary that stores all the timesteps  (sample in nuscenes context) and their information as neighbors that appear in a scene.
-        so if you want to get all the neighbors from a timestep, the information is stored in this dictionary with a Context object.
-    self.ego_vehicles is a dictionary similar to the agents, but with ego_vehicles information.
+    self.agents is a dictionary that stores agent information with agent_id as key and agent object (implement own agent class
+    as needed) as value.
+
+    self.contexts is a dictionary that stores all the timesteps  (sample in nuscenes context) and their information as neighbors
+    that appear in a scene. So if you want to get all the neighbors from a timestep, the information is stored in this dictionary
+    with a Context object.
+
+    self.ego_vehicles is a dictionary similar to the agents (implement own ego vehicle class as needed), but with ego_vehicles
+    information.
+
+    self.non_pred_agents is a dictionary similar to self.agents, but these are agents that are not candidates to a trajectory
+    prediction (depends on the dataset to determine the ones that are and the ones that are not candidates)
     """
     def __init__(self, verbose=True):
         self.agents = {}
@@ -347,48 +352,19 @@ class Dataset:
     def insert_context_neighbor(self, agent_id: str, context_id: str):
         self.contexts[context_id].add_pred_neighbor(agent_id)
 
-    def get_trajectories_indexes(self, size, skip=0, mode='overlap', overlap_points=0) -> np.array:
-        """
-        function to get the list of pair of indexes that indicate the start and end of a trajectory. This is done because if you
-        have trajectories that are much bigger than te size parameter, you may be interested in getting as many sub-trajectories
-        as you can from that big trajectory.
-
-        :param size indicates the number of points in the trajectory
-        :param skip indicates the number from which the first pair of indexes of each trajectory starts. This is because some datasets might
-               not have data defined in the firts observations (as nuscenes does not have speed defined in the 1st position or
-               acceleration is defined until the 3rd position so it could be usefull to skip the firts 2 observations)
-
-        :param mode indicates how to treat trajectories that are bigger than the minimum size. The following values are supported
-
-            - 'single': truncates the trajectory to the point in the <size> position, ie. agent_trajectory[0 : size]
-
-            - 'overlap': builds as many trajectories as it can using the overlap_points as the number of points that are common
-                         between two consecutive trajectories. For example if you have a minimum size = 20, overlap_points = 10
-                         and the trajectory has a lenght of 30 points, it builds two trajectories of the form [0:20], [10:30]
-
-        :param overlap_points indicates the number of points that two consecutive trajectories can have
-        :return list with tuple of indexes <(start, end)> indicating the start and end for each sub-trajectory for each agent.
-
-        """
-        for key, agent in self.agents.items():
-            n_timesteps = len(agent.timesteps)
-
-            if n_timesteps - skip >= size:
-                if mode == 'overlap':
-                    start, end = skip, size
-                    while end <= n_timesteps:
-                        agent.indexes.append((start, end))
-                        start = end - overlap_points
-                        end = start + size
-                else:
-                    agent.indexes.append((skip, size))
-
-            elif self.verbose:
-                print('Agent {} does not have enough points in the trajectory'.format(key))
-
     # get index of start and end of a trajectory for the ego vehicle
-    def get_ego_indexes(self, L=-1, overlap=0, min_neighbors=0):
-        ego_vehicles: dict = self.ego_vehicles
+    def get_trajectories_indexes(self, use_ego_vehicles=True, L=-1, overlap=0, min_neighbors=0):
+        """
+        get trajectories indexes (multiple trajectories can be obtained from a scene). This function gets the start and end
+        indexes of each subtrajectory of the scene trajectory
+        :param use_ego_vehicles: use real ego_vehicles if True, else use each agent of self.agents as ego vehicle.
+        :param L               : lenght of the trajectory. If -1, use all the points in trajectory
+        :param overlap         : number of overlap points between subtrajectories of the main trajectory. 0 means no overlap,
+                                 so if a trajectory contains 40 points, and L=20, indexes are going to be [(0, 20), (20, 40)]
+        :param min_neighbors   : minimum number of neighbors an ego-vehicle starting point needs to have to be considered.
+        :return                : None
+        """
+        ego_vehicles: dict = self.ego_vehicles if use_ego_vehicles else self.agents
         for ego_id, ego_vehicle in ego_vehicles.items():
             timesteps = list(ego_vehicle.timesteps.keys())
             if L == -1:
