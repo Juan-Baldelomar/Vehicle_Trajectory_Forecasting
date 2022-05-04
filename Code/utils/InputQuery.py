@@ -169,6 +169,8 @@ def stamp_positions_in_bitmap(inputs: np.ndarray, masks: np.ndarray, bitmaps: np
     # transform to pixel position
     pix_x = (pix_x * pixbymeter + x_p).astype(np.int32)
     pix_y = (pix_y * pixbymeter + y_p).astype(np.int32)
+    pix_x = np.maximum(0, np.minimum(256, pix_x))
+    pix_y = np.maximum(0, np.minimum(256, pix_y))
     # get neighbor dimension indexes, select the ones that are not padded and get array flattened
     N_pos = np.arange(N)[np.newaxis, :] * np.ones([S, N]).astype(np.int32)
     N_pos = N_pos[masks == 0]
@@ -189,7 +191,7 @@ class InputQuery:
         self.dataset = dataloader.dataset
 
     def get_egocentered_input(self, agent: Agent, agents, total_seq_l: int, N: int, seq_number=0,
-                              offset=-1, bitmap_extractor: BitmapFeature = None, canvas_size=(512, 512), **kwargs):
+                              offset=-1, bitmap_extractor: BitmapFeature = None, **kwargs):
         """
         get input scene centered in a specific ego-vehicle timestep.
         :param agent                :  agent object target, treated as center or virtual ego vehicle (meaning it could or could not be a real ego-vehicle)
@@ -200,23 +202,20 @@ class InputQuery:
         :param seq_number           : ego-vehicles might contain large sequences, so we might be interested in get as many scenes as possible from them.
                                       self.get_indexes should have been call, if not, assert will raise an error due to len(ego_vehicle.indexes) = 0
         :param offset               : offset int that indicates the index of the timestep to use as origin. If -1 none is taken
-        :param canvas_size          : size of the canvas of the bitmap
         :return                     : InputTensor with shape (sequence, neighbors, features) and InputMask (sequence, neighbors) that masks neighbors that do not appear.
         """
         assert (len(agent.indexes) > 0)
         start, end = agent.indexes[seq_number]
         inputTensor = np.zeros((total_seq_l, N, 5))     # (seq, neighbors, features)
         inputMask = np.ones((total_seq_l, N))           # at the beginning, all neighbors have padding
-        neigh_bitmaps = np.ones((N, 2, *canvas_size))  # (N, 2, H, W)
-
+        bitmaps = None
         # timesteps that will be traversed, timestep[0] = key, timestep[1] = egostep object
         timesteps = list(agent.timesteps.items())[start: end]
-        origin_timestep = timesteps[offset][1] if offset != -1 else None
+        origin_timestep: AgentTimestep = timesteps[offset][1] if offset != -1 else None
 
         # get bitmaps for center agent (ego vehicle or agent treated as ego vehicle)
         if bitmap_extractor is not None:
             bitmaps = bitmap_extractor.getMasks(origin_timestep, agent.map_name, **kwargs)
-            #neigh_bitmaps = neigh_bitmaps * bitmaps[np.newaxis, :, :, :]
 
         # available positions start from 1 because ego vehicle occupies position 0.
         neighbors_positions = self.dataset.get_agent_neighbors(agent, seq_number)
@@ -244,7 +243,7 @@ class InputQuery:
                 # turn off mask in this position
                 inputMask[s_index, neighbor_pos] = 0
 
-        return inputTensor, inputMask, bitmaps
+        return inputTensor, inputMask, bitmaps, origin_timestep.rot
 
 # ---------------------------------------------------------------- FUNCTIONS TO BUILD INPUTS ----------------------------------------------------------------
 
@@ -255,7 +254,7 @@ class InputQuery:
         # USEFUL VARIABLES
         ego_vehicles: dict = self.dataset.ego_vehicles if use_ego_vehicles else self.dataset.agents
         agents: dict = self.dataset.agents
-        list_inputs, list_agent_ids = [], []
+        list_inputs = []
         # max sequence lenght
         total_seq_l = inp_seq_l + tar_seq_l
 
@@ -264,20 +263,27 @@ class InputQuery:
             # traverse all the possible trajectories for and ego vehicle
             for i, (_, _) in enumerate(ego_vehicle.indexes):
                 # get inputTensor and its mask centered in egovehicle
-                inputTensor, inputMask, bitmaps = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
-                                                                             offset=offset, bitmap_extractor=bitmap_extractor, **kwargs)
+                inputTensor, inputMask, bitmaps, yaw = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
+                                                                                  offset=offset, bitmap_extractor=bitmap_extractor, **kwargs)
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
                 # split trajectories into input and target
+                name = ego_id + '_' + str(i)
                 inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
-                list_inputs.append((inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask, inputTensor))
+                list_inputs.append({'past': inp,
+                                    'past_neighMask': inp_mask,
+                                    'past_seqMask': seq_inpMask,
+                                    'future': tar,
+                                    'future_neighMask': tar_mask,
+                                    'future_seqMask': seq_tarMask,
+                                    'full_traj': inputTensor,
+                                    'origin_yaw': yaw,
+                                    'ego_id': name})
                 # save bitmaps and store name
                 if bitmap_extractor is not None:
-                    name = ego_id + '_' + str(i)
-                    list_agent_ids.append(name)
                     np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
 
         # return inputs
-        return list_inputs, list_agent_ids
+        return list_inputs
 
     def get_single_Input(self, inp_seq_l, tar_seq_l, offset=-1):
         # get indexes of the sequences

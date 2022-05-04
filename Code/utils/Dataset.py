@@ -162,12 +162,6 @@ class NuscenesAgent(Agent):
     def add_step(self, step_id: str, agent_step: NuscenesAgentTimestep):
         self.timesteps[step_id] = agent_step
 
-    def get_map_patch(self, x_start, y_start, x_offset=100, y_offset=100):
-        ends = nusc_ends[self.map_name]
-        x_final = min(ends[0], x_start + x_offset)
-        y_final = min(ends[1], y_start + y_offset)
-        return x_start, y_start, x_final, y_final
-
     def get_features(self, timestep_id, origin_timestep=None):
         x_o, y_o, origin_rot = 0, 0, 0
         if origin_timestep is not None:
@@ -212,8 +206,8 @@ class ShiftsBitmap(BitmapFeature):
         self.renderer = None
 
     def getMasks(self, timestep: ShiftTimeStep, map_name, renderer_conf=None):
-        if self.renderer is None:
-            print('[WARN] self.renderer should not be None, calling self.set_renderer()')
+        if self.renderer is None or renderer_conf is not None:
+            print('[WARN] self.renderer should not be None, calling self.set_renderer()') if self.renderer is None else None
             self.set_renderer(renderer_conf)
 
         scene = read_scene_from_file(map_name)

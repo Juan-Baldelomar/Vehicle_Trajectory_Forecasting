@@ -76,28 +76,34 @@ ego_id, ego_vehicle = next(ego_iter)
 
 shifts_bitmap = ShiftsBitmap()
 
-queried_data = inputQuery.get_TransformerCube_Input(25, 25, 5, 24, shifts_bitmap, 'maps/shifts')
+inputs = inputQuery.get_TransformerCube_Input(25, 25, 5, 24, bitmap_extractor=None, path='maps/shifts')
 
-file_id = '47762072c090c2cfdb4123d28225f935_0.npz'
-ego_vehicle = shifts_loader.dataset.ego_vehicles['47762072c090c2cfdb4123d28225f935']
+dl.save_pkl_data(inputs, 'shifts_data.pkl')
+#dl.save_pkl_data({'inputs': inputs, 'ids': ids, 'yaws': yaws}, 'shifts_data.pkl')
 
-img_comp = np.load('maps/shifts/47762072c090c2cfdb4123d28225f935_0.npz')
-img = img_comp['bitmaps']
-img = np.transpose(img, [1, 2, 0])
-plt.figure(figsize=(10, 10))
-plt.imshow(img[:, :, 1])
-plt.show()
-
-inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
-                                        24, bitmap_extractor=shifts_bitmap)
-
+# ******* TEST visualize maps and stamped positions *******
+# file_id = '47762072c090c2cfdb4123d28225f935_0.npz'
+# ego_keys = list(shifts_loader.dataset.ego_vehicles.keys())
+# ego_vehicle = shifts_loader.dataset.ego_vehicles['47762072c090c2cfdb4123d28225f935']
+# ego_vehicle = shifts_loader.dataset.ego_vehicles[ego_keys[355]]
 #
-yaw = list(ego_vehicle.timesteps.values())[24].rot
-bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256 / 200.0, yaw)
-bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
-plt.figure(figsize=(10, 10))
-plt.imshow(bitmaps[3])
-plt.show()
+# img_comp = np.load('maps/shifts/47762072c090c2cfdb4123d28225f935_0.npz')
+# img = img_comp['bitmaps']
+# img = np.transpose(img, [1, 2, 0])
+# plt.figure(figsize=(10, 10))
+# plt.imshow(img[:, :, 1])
+# plt.show()
+#
+# inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
+#                                         24, bitmap_extractor=shifts_bitmap)
+#
+# #
+# yaw = list(ego_vehicle.timesteps.values())[24].rot
+# bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256 / 200.0, yaw)
+# bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
+# plt.figure(figsize=(10, 10))
+# plt.imshow(bitmaps[0])
+# plt.show()
 
 # v_track = VehicleTrack()
 # origin = list(ego_vehicle.timesteps.values())[24]
