@@ -1,3 +1,7 @@
+"""This file contains code that models the dataset general structure in which a specific dataset is stored.
+   For example, this file contains the implementations of both nuscenes and shifts datasets
+"""
+
 import matplotlib.pyplot as plt
 from ysdc_dataset_api.utils import get_to_track_frame_transform, read_scene_from_file, VehicleTrack
 from ysdc_dataset_api.features import FeatureRenderer

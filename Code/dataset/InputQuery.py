@@ -1,6 +1,6 @@
 
 from dataloader import Loader
-from Dataset import *
+from DataModel import *
 import numpy as np
 from pyquaternion import Quaternion
 
@@ -169,8 +169,8 @@ def stamp_positions_in_bitmap(inputs: np.ndarray, masks: np.ndarray, bitmaps: np
     # transform to pixel position
     pix_x = (pix_x * pixbymeter + x_p).astype(np.int32)
     pix_y = (pix_y * pixbymeter + y_p).astype(np.int32)
-    pix_x = np.maximum(0, np.minimum(256, pix_x))
-    pix_y = np.maximum(0, np.minimum(256, pix_y))
+    pix_x = np.maximum(0 - step_start, np.minimum(255 - step_end, pix_x))
+    pix_y = np.maximum(0 - step_start, np.minimum(255 - step_end, pix_y))
     # get neighbor dimension indexes, select the ones that are not padded and get array flattened
     N_pos = np.arange(N)[np.newaxis, :] * np.ones([S, N]).astype(np.int32)
     N_pos = N_pos[masks == 0]

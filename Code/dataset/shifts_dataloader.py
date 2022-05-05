@@ -5,7 +5,7 @@ from dataloader import save_pkl_data
 
 # data manipulation and tools
 import numpy as np
-from Dataset import *
+from DataModel import *
 import os
 
 # shifts libraries

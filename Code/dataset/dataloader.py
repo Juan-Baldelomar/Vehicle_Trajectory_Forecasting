@@ -1,5 +1,5 @@
 
-from Dataset import Dataset
+from DataModel import Dataset
 
 # utilities
 import numpy as np
@@ -29,7 +29,7 @@ class Loader:
     Loader CLASS
 
     * Loader Parent Class: This class should be implemented by any specific loader of the desired dataset.
-    * self.dataset should be an object Datset defined in the Dataset.py. The ideal is that it contains
+    * self.dataset should be an object Datset defined in the DataModel.py. The ideal is that it contains
             - NuscenesAgent dictionary like agents[agent_id] = NuscenesAgent() object.
             - EgoVehicles dictionary like ego_vehicles[ego_id] = NuscenesEgoVehicle() object.
             - Context dictionary like Context[context_id] = Context Object. A context is an object that holds information (Ideally)
