@@ -5,7 +5,7 @@ from shifts_dataloader import ShiftsLoader
 from InputQuery import *
 from InputQuery import verifyNan
 from InputQuery import process_nans
-import dataloader as dl
+from Code.utils import save_utils as dl
 
 # PATH
 dataroot_base = '/data/sets/nuscenes'
@@ -66,22 +66,35 @@ data_name = 'train'
 # #             break
 
 # -------------------------------------------------------------------- SHIFTS --------------------------------------------------------------------
-dataroot = '/data/shifts/data/development'
-shifts_loader = ShiftsLoader(DATAROOT=dataroot, pickle=True)
-# shifts_loader.dataset.get_ego_indexes(L=50)
-inputQuery = InputQuery(shifts_loader)
+# dataroot = '/data/shifts/data/development'
+# chunk_number = 3
+# pickle_filename = '/data/shifts/data_chunk' + str(chunk_number) + '.pkl'
+# maps_path = '../data/maps/shifts/chunk' + str(chunk_number)
+# final_path = '../data/shifts_data_chunk' + str(chunk_number) + '.pkl'
+# chunk_start = (chunk_number-1) * 2000
+# chunk_end = chunk_number * 2000
+# shifts_loader = ShiftsLoader(DATAROOT=dataroot, pickle=False, pickle_filename=pickle_filename, chunk=(chunk_start, chunk_end))
+# inputQuery = InputQuery(shifts_loader)
+# shifts_bitmap = ShiftsBitmap()
+# inputs = inputQuery.get_TransformerCube_Input(25, 25, 5, 24, bitmap_extractor=None, path=maps_path)
+# dl.save_pkl_data(inputs, final_path)
 
-ego_iter = iter(shifts_loader.dataset.ego_vehicles.items())
-ego_id, ego_vehicle = next(ego_iter)
 
-shifts_bitmap = ShiftsBitmap()
+inputs_1 = dl.load_pkl_data('../data/shifts_data_chunk1.pkl')
+inputs_2 = dl.load_pkl_data('../data/shifts_data_chunk2.pkl')
+inputs_3 = dl.load_pkl_data('../data/shifts_data_chunk3.pkl')
+inputs_4 = dl.load_pkl_data('../data/shifts_data_chunk4.pkl')
+inputs_5 = dl.load_pkl_data('../data/shifts_data_chunk5.pkl')
 
-inputs = inputQuery.get_TransformerCube_Input(25, 25, 5, 24, bitmap_extractor=None, path='maps/shifts')
+all_inputs = inputs_1 + inputs_2 + inputs_3 + inputs_4 + inputs_5
+dl.save_pkl_data(all_inputs, '../data/shifts_data_all_p4.pkl', protocol=4)
 
-dl.save_pkl_data(inputs, 'shifts_data.pkl')
 #dl.save_pkl_data({'inputs': inputs, 'ids': ids, 'yaws': yaws}, 'shifts_data.pkl')
 
 # ******* TEST visualize maps and stamped positions *******
+#ego_iter = iter(shifts_loader.dataset.ego_vehicles.items())
+#ego_id, ego_vehicle = next(ego_iter)
+
 # file_id = '47762072c090c2cfdb4123d28225f935_0.npz'
 # ego_keys = list(shifts_loader.dataset.ego_vehicles.keys())
 # ego_vehicle = shifts_loader.dataset.ego_vehicles['47762072c090c2cfdb4123d28225f935']

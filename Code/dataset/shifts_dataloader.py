@@ -1,7 +1,6 @@
 
 # base class
-from dataloader import Loader
-from dataloader import save_pkl_data
+from Code.dataset.dataloader import Loader
 
 # data manipulation and tools
 import numpy as np
@@ -15,7 +14,7 @@ from ysdc_dataset_api.utils import get_file_paths, scenes_generator, transform_2
 
 
 class ShiftsLoader(Loader):
-    def __init__(self, DATAROOT, pickle=True, pickle_filename='/data/shifts/data.pkl', verbose=True):
+    def __init__(self, DATAROOT, pickle=True, pickle_filename='/data/shifts/data.pkl', chunk=(0, 1000), verbose=True):
         # super constructor
         super(ShiftsLoader, self).__init__(DATAROOT, verbose)
         self.renderer = None
@@ -27,7 +26,7 @@ class ShiftsLoader(Loader):
             self.load_pickle_data(pickle_filename)
         else:
             # load data from scratch
-            self.load_data()
+            self.load_data(chunk)
             self.save_pickle_data(pickle_filename)
 
         ShiftsAgent.context_dict = self.dataset.contexts

@@ -2,15 +2,7 @@
 import numpy as np
 import tensorflow as tf
 
-from InputQuery import stamp_positions_in_bitmap
-
-
-def get_look_ahead_mask(input_data):
-    input_shape = list(input_data.shape)[:-1]
-    input_shape.insert(-1, input_shape[-1])
-    input_shape.insert(1, 1)
-    mask = 1 - tf.linalg.band_part(tf.ones(input_shape), -1, 0)
-    return mask
+from Code.dataset.InputQuery import stamp_positions_in_bitmap
 
 
 def adapt_spa_mask(mask):
@@ -102,7 +94,7 @@ def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):
     # BUILD FINAL DATASET
     dataset = tf.data.Dataset.zip((past_ds, future_ds, bitmaps_ds, target_ds))
     # SHUFFLE AND BATCH
-    dataset = dataset.shuffle(4000)
+    dataset = dataset.shuffle(1000)
     drop_remainder = len(past) % batch_size == 1
     dataset = dataset.batch(batch_size, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
 

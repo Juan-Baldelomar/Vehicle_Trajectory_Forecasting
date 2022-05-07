@@ -1,6 +1,6 @@
 
-from dataloader import Loader
-from DataModel import *
+from Code.dataset.dataloader import Loader
+from Code.dataset.DataModel import *
 import numpy as np
 from pyquaternion import Quaternion
 
