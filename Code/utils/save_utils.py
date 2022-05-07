@@ -27,14 +27,3 @@ def load_parameters(filename):
             params[line_values[0]] = int(line_values[1])
 
     return params
-
-
-def save_optimizer(optimizer, weights_path, config_path):
-    save_pkl_data(optimizer.get_weights(), weights_path, 4)
-    save_pkl_data(optimizer.get_config(), config_path)
-
-
-def load_optimizer(weights_path, config_path):
-    optimizer = Optimizer.from_config(config_path)
-    optimizer.set_weights(load_pkl_data(weights_path))
-    return optimizer

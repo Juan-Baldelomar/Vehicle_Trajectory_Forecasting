@@ -86,7 +86,7 @@ def get_npz_bitmaps(path, past_xy, masks, yaw):
     return bitmap.astype(np.float32)
 
 
-AUTOTUNE = tf.data.AUTOTUNE
+AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
 def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):

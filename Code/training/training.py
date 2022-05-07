@@ -3,23 +3,31 @@ import tensorflow as tf
 
 from Code.models.Model_traj import STTransformer
 from Code.dataset.dataset import buildDataset
-from Code.utils.save_utils import load_pkl_data, save_pkl_data, load_optimizer, save_optimizer
+from Code.utils.save_utils import load_pkl_data, save_pkl_data
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-  def __init__(self, d_model, warmup_steps=5):
-    super(CustomSchedule, self).__init__()
+    def __init__(self, d_model, warmup_steps=5):
+        super(CustomSchedule, self).__init__()
 
-    self.d_model = d_model
-    self.d_model = tf.cast(self.d_model, tf.float32)
+        self.d_model = d_model
+        self.d_model = tf.cast(self.d_model, tf.float32)
 
-    self.warmup_steps = warmup_steps
+        self.warmup_steps = warmup_steps
 
-  def __call__(self, step):
-    arg1 = tf.math.rsqrt(step)
-    arg2 = step * (self.warmup_steps ** -1.5)
+    def __call__(self, step):
+        arg1 = tf.math.rsqrt(step)
+        arg2 = step * (self.warmup_steps ** -1.5)
 
-    return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+        return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
+    def get_config(self):
+        return {'d_model': self.d_model, 'w_steps': self.warmup_steps}
+
+    def from_config(config, custom_object=None):
+        d_model = config['d_model']
+        warmup_steps = config['w_steps']
+        return CustomSchedule(d_model, warmup_steps)
 
 
 class HalveSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -34,6 +42,22 @@ class HalveSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
             self.lr = self.lr / 2
 
         return self.lr
+
+
+def save_optimizer(optimizer, weights_path, config_path):
+    save_pkl_data(optimizer.get_weights(), weights_path, 4)
+    save_pkl_data(optimizer.get_config(), config_path, 4)
+
+
+def load_optimizer(weights_path, config_path):
+    conf = load_pkl_data(config_path)
+    weights = load_pkl_data(weights_path)
+    # load custom scheduler
+    conf['learning_rate'] = CustomSchedule.from_config(conf['learning_rate']['config'])
+    # load optimizer conf and weights
+    optimizer = tf.keras.optimizers.Adam.from_config(conf)
+    optimizer.set_weights(weights)
+    return optimizer
 
 
 def load_model_and_opt(modelpath=None, optimizer_weights_path=None, optimizer_config_path=None):
@@ -59,7 +83,7 @@ def load_model_and_opt(modelpath=None, optimizer_weights_path=None, optimizer_co
 
     # load model if possible
     if modelpath is not None:
-        model.load_model()
+        model.set_weights(load_pkl_data(modelpath))
     # load optimizer if possible
     if optimizer_config_path is not None and optimizer_weights_path is not None:
         optimizer = load_optimizer(optimizer_weights_path, optimizer_config_path)
@@ -85,7 +109,7 @@ def save_state(model, optimizer, model_path, opt_weight_path, opt_conf_path):
 def train(filename, BATCH_SIZE=32, epochs=20, model_path=None, opt_weights_path=None, opt_conf_path=None):
     # load dataset
     data = load_pkl_data(filename)
-    dataset, std_x, std_y = buildDataset(data, BATCH_SIZE, pre_path='../data/maps/shifts/')
+    dataset, std_x, std_y = buildDataset(data, BATCH_SIZE, pre_path='Code/data/maps/shifts/')
     stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
     model, optimizer = load_model_and_opt(model_path, opt_weights_path, opt_conf_path)
 
