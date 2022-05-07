@@ -5,6 +5,7 @@ from shifts_dataloader import ShiftsLoader
 from InputQuery import *
 from InputQuery import verifyNan
 from InputQuery import process_nans
+from Code.dataset.dataset import stamp_positions_in_bitmap
 from Code.utils import save_utils as dl
 
 # PATH
