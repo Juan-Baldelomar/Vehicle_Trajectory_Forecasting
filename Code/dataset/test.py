@@ -67,18 +67,18 @@ data_name = 'train'
 # #             break
 
 # -------------------------------------------------------------------- SHIFTS --------------------------------------------------------------------
-dataroot = '/data/shifts/data/development'
-chunk_number = 10
-pickle_filename = '/data/shifts/data_chunk' + str(chunk_number) + '.pkl'
-maps_path = '../data/maps/shifts/chunk' + str(chunk_number)
-final_path = '../data/shifts_data_chunk' + str(chunk_number) + '.pkl'
-chunk_start = (chunk_number-1) * 2000
-chunk_end = chunk_number * 2000
-shifts_loader = ShiftsLoader(DATAROOT=dataroot, pickle=True, pickle_filename=pickle_filename, chunk=(chunk_start, chunk_end))
-inputQuery = InputQuery(shifts_loader)
-shifts_bitmap = ShiftsBitmap()
-inputs = inputQuery.get_TransformerCube_Input(25, 25, 5, 24, bitmap_extractor=shifts_bitmap, path=maps_path)
-dl.save_pkl_data(inputs, final_path)
+# dataroot = '/data/shifts/data/development'
+# chunk_number = 10
+# pickle_filename = '/data/shifts/data_chunk' + str(chunk_number) + '.pkl'
+# maps_path = '../data/maps/shifts/chunk' + str(chunk_number)
+# final_path = '../data/shifts_data_chunk' + str(chunk_number) + '.pkl'
+# chunk_start = (chunk_number-1) * 2000
+# chunk_end = chunk_number * 2000
+# shifts_loader = ShiftsLoader(DATAROOT=dataroot, pickle=True, pickle_filename=pickle_filename, chunk=(chunk_start, chunk_end))
+# inputQuery = InputQuery(shifts_loader)
+# shifts_bitmap = ShiftsBitmap()
+# inputs = inputQuery.get_TransformerCube_Input(25, 25, 5, 24, bitmap_extractor=shifts_bitmap, path=maps_path)
+# dl.save_pkl_data(inputs, final_path)
 
 
 # inputs_1 = dl.load_pkl_data('../data/shifts_data_chunk1.pkl')
@@ -86,34 +86,38 @@ dl.save_pkl_data(inputs, final_path)
 # inputs_3 = dl.load_pkl_data('../data/shifts_data_chunk3.pkl')
 # inputs_4 = dl.load_pkl_data('../data/shifts_data_chunk4.pkl')
 # inputs_5 = dl.load_pkl_data('../data/shifts_data_chunk5.pkl')
+# inputs_6 = dl.load_pkl_data('../data/shifts_data_chunk6.pkl')
+# inputs_7 = dl.load_pkl_data('../data/shifts_data_chunk7.pkl')
+# inputs_8 = dl.load_pkl_data('../data/shifts_data_chunk8.pkl')
+# inputs_9 = dl.load_pkl_data('../data/shifts_data_chunk9.pkl')
+# inputs_10 = dl.load_pkl_data('../data/shifts_data_chunk10.pkl')
 #
-# all_inputs = inputs_1 + inputs_2 + inputs_3 + inputs_4 + inputs_5
+# all_inputs = inputs_1 + inputs_2 + inputs_3 + inputs_4 + inputs_5 + inputs_6 + inputs_7 + inputs_8 + inputs_9 + inputs_10
 # dl.save_pkl_data(all_inputs, '../data/shifts_data_all_p4.pkl', protocol=4)
 
-#dl.save_pkl_data({'inputs': inputs, 'ids': ids, 'yaws': yaws}, 'shifts_data.pkl')
 
 # --------------------------------------- ******* TEST visualize maps and stamped positions ******* ---------------------------------------
-file_id = inputs[1225]['ego_id'] + '.npz'
-ego_id, _ = file_id.split('_')
-ego_vehicle = shifts_loader.dataset.ego_vehicles[ego_id]
-
-img_comp = np.load('../data/maps/shifts/chunk10/' + file_id)
-img = img_comp['bitmaps']
-img = np.transpose(img, [1, 2, 0])
-plt.figure(figsize=(10, 10))
-plt.imshow(img[:, :, 1])
-plt.show()
-
-inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
-                                        24, bitmap_extractor=shifts_bitmap)
-
+# file_id = inputs[1225]['ego_id'] + '.npz'
+# ego_id, _ = file_id.split('_')
+# ego_vehicle = shifts_loader.dataset.ego_vehicles[ego_id]
 #
-yaw = list(ego_vehicle.timesteps.values())[24].rot
-bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256 / 200.0, yaw)
-bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
-plt.figure(figsize=(10, 10))
-plt.imshow(bitmaps[1])
-plt.show()
+# img_comp = np.load('../data/maps/shifts/chunk10/' + file_id)
+# img = img_comp['bitmaps']
+# img = np.transpose(img, [1, 2, 0])
+# plt.figure(figsize=(10, 10))
+# plt.imshow(img[:, :, 1])
+# plt.show()
+#
+# inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
+#                                         24, bitmap_extractor=shifts_bitmap)
+#
+# #
+# yaw = list(ego_vehicle.timesteps.values())[24].rot
+# bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256 / 200.0, yaw)
+# bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
+# plt.figure(figsize=(10, 10))
+# plt.imshow(bitmaps[1])
+# plt.show()
 
 # ------------------------------------------------------------------------- TEST -------------------------------------------------------------------------
 
@@ -140,3 +144,6 @@ plt.show()
 # matrixes, ids = inputQuery.get_single_Input(7, 8, 7)
 #
 # dl.save_pkl_data(matrixes, 'val_nusc_inps.pkl')
+
+
+params = dl.load_parameters('params.txt')

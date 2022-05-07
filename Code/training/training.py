@@ -3,7 +3,7 @@ import tensorflow as tf
 
 from Code.models.Model_traj import STTransformer
 from Code.dataset.dataset import buildDataset
-from Code.utils.save_utils import load_pkl_data, save_pkl_data
+from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_paths, load_parameters
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -60,33 +60,61 @@ def load_optimizer(weights_path, config_path):
     return optimizer
 
 
-def load_model_and_opt(modelpath=None, optimizer_weights_path=None, optimizer_config_path=None):
-    # build model
-    feat_size, dk = 256, 256
-    seq_size = 25
-    neigh_size = 5
-    n_heads = 4
-    model = STTransformer(feat_size,
-                          seq_size,
-                          neigh_size,
-                          sp_dk=dk,
-                          sp_enc_heads=n_heads,
-                          sp_dec_heads=n_heads,
-                          tm_dk=dk,
-                          tm_enc_heads=n_heads,
-                          tm_dec_heads=n_heads,
-                          sp_num_encoders=1,
-                          sp_num_decoders=1,
-                          tm_num_encoders=2,
-                          tm_num_decoders=2
-                          )
+def split_params(params):
+    # validate all needed params are present
+    if params is None:
+        raise RuntimeError('[ERR] params is None. Parameters should be loaded from params file')
+    if params.get('feat_size') is None or params.get('seq_size') is None or params.get('neigh_size') is None:
+        raise RuntimeError('[ERR] parameters file should contain basic model params (feat_size, seq_size, neigh_size)')
+    if params.get('batch') is None or params.get('epochs') is None:
+        raise RuntimeError('[ERR] parameters file should contain basic training params (batch, epochs)')
+    if params.get('data_path') is None or params.get('maps_dir') is None:
+        raise RuntimeError('[ERR] parameters file should contain basic data params (data_path, maps_dir)')
 
+    # get params values
+    batch = params['batch']
+    epochs = params['epochs']
+    model_params = {
+        'feat_size': params['feat_size'],
+        'seq_size': params['seq_size'],
+        'neigh_size': params['neigh_size'],
+        'sp_dk': params.get('sp_dk', 256),
+        'sp_enc_heads': params.get('sp_enc_heads', 4),
+        'sp_dec_heads': params.get('sp_dec_heads', 4),
+        'tm_dk': params.get('tm_dk', 256),
+        'tm_enc_heads': params.get('sp_enc_heads', 4),
+        'tm_dec_heads': params.get('sp_dec_heads', 4),
+        'sp_num_encoders': params.get('sp_num_encoders', 4),
+        'sp_num_decoders': params.get('sp_num_decoders', 4),
+        'tm_num_encoders': params.get('tm_num_encoders', 4),
+        'tm_num_decoders': params.get('tm_num_decoders', 4)
+    }
+    preload_params = {
+        'preload': params.get('preload', False),
+        'model_path': params.get('model_path') ,
+        'opt_weights_path': params.get('opt_weights_path'),
+        'opt_config_path': params.get('opt_config_path')
+    }
+
+    data_params = {
+        'data_path': params['data_path'],
+        'maps_dir:': params['maps_dir']
+    }
+
+    return model_params, batch, epochs, preload_params, data_params
+
+
+def load_model_and_opt(model_params, preload=False, model_path=None, opt_weights_path=None, opt_config_path=None):
+    # build model
+    model = STTransformer(**model_params)
     # load model if possible
-    if modelpath is not None:
-        model.set_weights(load_pkl_data(modelpath))
-    # load optimizer if possible
-    if optimizer_config_path is not None and optimizer_weights_path is not None:
-        optimizer = load_optimizer(optimizer_weights_path, optimizer_config_path)
+    if preload:
+        if model_path is not None and valid_paths(model_path):
+            model.set_weights(load_pkl_data(model_path))
+        # load optimizer if possible
+        if opt_config_path is not None and opt_weights_path is not None \
+                and valid_paths(opt_config_path, opt_weights_path):
+            optimizer = load_optimizer(opt_weights_path, opt_config_path)
     else:
         learning_rate = CustomSchedule(256)
         optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
@@ -106,12 +134,12 @@ def save_state(model, optimizer, model_path, opt_weight_path, opt_conf_path):
     save_optimizer(optimizer, opt_weight_path, opt_conf_path)
 
 
-def train(filename, BATCH_SIZE=32, epochs=20, model_path=None, opt_weights_path=None, opt_conf_path=None):
+def train(model_params, batch, epochs, data_path, maps_dir, preload=False, model_path=None, opt_weights_path=None, opt_conf_path=None):
     # load dataset
-    data = load_pkl_data(filename)
-    dataset, std_x, std_y = buildDataset(data, BATCH_SIZE, pre_path='Code/data/maps/shifts/')
+    data = load_pkl_data(data_path)
+    dataset, std_x, std_y = buildDataset(data, batch, pre_path=maps_dir)
     stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
-    model, optimizer = load_model_and_opt(model_path, opt_weights_path, opt_conf_path)
+    model, optimizer = load_model_and_opt(model_params, preload, model_path, opt_weights_path, opt_conf_path)
 
     worst_loss = np.inf
     for epoch in range(epochs):
@@ -120,7 +148,7 @@ def train(filename, BATCH_SIZE=32, epochs=20, model_path=None, opt_weights_path=
         for (past, future, maps, _) in dataset:
             losses, loss = model.train_step(past, future, maps, stds, losses, optimizer)
             if np.isnan(loss.numpy()):
-                break;
+                break
         # l_ade = []
         # for batch in dataset:
         #  ade = eval_step(batch)
@@ -142,9 +170,9 @@ def train(filename, BATCH_SIZE=32, epochs=20, model_path=None, opt_weights_path=
 if __name__ == '__main__':
     import sys
     print(tf.keras.__version__)
-    data_path = sys.argv[1]
-    batch = int(sys.argv[2])
-    epochs = int(sys.argv[3])
-    train(data_path, batch, epochs)
+    params_path = sys.argv[1]
+    params = load_parameters(params_path)
+    model_params, batch, epochs, preload_params, data_params = split_params(params)
+    train(model_params, batch, epochs, **data_params, **preload_params)
 
 
