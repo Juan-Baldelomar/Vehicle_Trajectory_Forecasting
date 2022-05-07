@@ -364,7 +364,7 @@ class STTransformer(keras.Model):
         # multiply by ones to match all neighbors shape, except features dim
         sp_desired_shape = past.shape[:-1] + proc_maps.shape[-1]
         # -tm_desired_shape = speeds.shape[:-1] + proc_maps.shape[-1]
-        sp_proc_maps = proc_maps * tf.ones(sp_desired_shape)
+        sp_proc_maps = proc_maps[:, tf.newaxis, :, :] * tf.ones(sp_desired_shape)
         # -tm_proc_maps = proc_maps[:, tf.newaxis, tf.newaxis, :] * tf.ones(tm_desired_shape)
 
         past = tf.concat((past, sp_proc_maps), axis=-1)

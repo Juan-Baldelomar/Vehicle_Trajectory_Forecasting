@@ -3,7 +3,7 @@ import tensorflow as tf
 
 from Code.models.Model_traj import STTransformer
 from Code.dataset.dataset import buildDataset
-from Code.utils.save_utils import load_pkl_data
+from Code.utils.save_utils import load_pkl_data, save_pkl_data, load_optimizer, save_optimizer
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -36,22 +36,59 @@ class HalveSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         return self.lr
 
 
-def train(filename, BATCH_SIZE=32, epochs=20, modelpath=None):
+def load_model_and_opt(modelpath=None, optimizer_weights_path=None, optimizer_config_path=None):
+    # build model
     feat_size, dk = 256, 256
     seq_size = 25
     neigh_size = 5
     n_heads = 4
-    model = STTransformer(feat_size, seq_size, neigh_size,
-                          sp_dk=dk, sp_enc_heads=n_heads, sp_dec_heads=n_heads,
-                          tm_dk=dk, tm_enc_heads=n_heads, tm_dec_heads=n_heads,
-                          sp_num_encoders=1, sp_num_decoders=1, tm_num_encoders=2, tm_num_decoders=2)
+    model = STTransformer(feat_size,
+                          seq_size,
+                          neigh_size,
+                          sp_dk=dk,
+                          sp_enc_heads=n_heads,
+                          sp_dec_heads=n_heads,
+                          tm_dk=dk,
+                          tm_enc_heads=n_heads,
+                          tm_dec_heads=n_heads,
+                          sp_num_encoders=1,
+                          sp_num_decoders=1,
+                          tm_num_encoders=2,
+                          tm_num_decoders=2
+                          )
+
+    # load model if possible
     if modelpath is not None:
         model.load_model()
+    # load optimizer if possible
+    if optimizer_config_path is not None and optimizer_weights_path is not None:
+        optimizer = load_optimizer(optimizer_weights_path, optimizer_config_path)
+    else:
+        learning_rate = CustomSchedule(256)
+        optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
+
+    return model, optimizer
+
+
+def save_state(model, optimizer, model_path, opt_weight_path, opt_conf_path):
+    if model_path is None:
+        model_path = 'Code/weights/best_ModelTraj_weights.pkl'
+    if opt_weight_path is None:
+        opt_weight_path = 'Code/weights/best_opt_weight.pkl'
+    if opt_conf_path is None:
+        opt_conf_path = 'Code/config/best_opt_conf.pkl'
+
+    save_pkl_data(model.get_weights(), model_path)
+    save_optimizer(optimizer, opt_weight_path, opt_conf_path)
+
+
+def train(filename, BATCH_SIZE=32, epochs=20, model_path=None, opt_weights_path=None, opt_conf_path=None):
+    # load dataset
     data = load_pkl_data(filename)
     dataset, std_x, std_y = buildDataset(data, BATCH_SIZE, pre_path='../data/maps/shifts/')
     stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
-    learning_rate = CustomSchedule(256)
-    optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
+    model, optimizer = load_model_and_opt(model_path, opt_weights_path, opt_conf_path)
+
     worst_loss = np.inf
     for epoch in range(epochs):
         print('epoch: ', epoch)
@@ -60,7 +97,6 @@ def train(filename, BATCH_SIZE=32, epochs=20, modelpath=None):
             losses, loss = model.train_step(past, future, maps, stds, losses, optimizer)
             if np.isnan(loss.numpy()):
                 break;
-
         # l_ade = []
         # for batch in dataset:
         #  ade = eval_step(batch)
@@ -69,7 +105,12 @@ def train(filename, BATCH_SIZE=32, epochs=20, modelpath=None):
         avg_loss = tf.reduce_mean(losses)
         if avg_loss.numpy() < worst_loss:
             worst_loss = avg_loss.numpy()
-            model.save_model()
+            save_state(model,
+                       optimizer,
+                       model_path=model_path,
+                       opt_weight_path=opt_weights_path,
+                       opt_conf_path=opt_conf_path
+                       )
 
         print("avg loss", tf.reduce_mean(losses))
 

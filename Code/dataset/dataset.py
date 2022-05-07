@@ -3,7 +3,8 @@ import numpy as np
 import tensorflow as tf
 
 
-def stamp_positions_in_bitmap(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray, pixbymeter: float, yaw, step_start=-1, step_end=1):
+def stamp_positions_in_bitmap(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
+                              pixbymeter: float, yaw, step_start=-1, step_end=1, debug=False):
     """
     :param: inputs    : np array of the form (S, N, F). S=sequence, N=Neighbors, F=Features (x=0, y=1).
     :param: masks     : np array of the form (S, N). S=sequence, N=Neighbors. Indicates thoses entries that are padded.
@@ -12,6 +13,7 @@ def stamp_positions_in_bitmap(inputs: np.ndarray, masks: np.ndarray, bitmaps: np
     :param: yaw       : rotation angle of the points (if map was rotated, trajectories should be rotated by the same angle)
     :param: step start: when stamping the step of and agent, a pixel width might be to small, so you can make it bigger by setting the step_start
                         and step_end, so you stamp all the pixels in the range (pos + step_start, pos + step_end)
+    :param: debug     : if True, print values of pixels
     """
     assert(step_start <= 0 and step_end >= 0)
     # needed shapes
@@ -42,6 +44,9 @@ def stamp_positions_in_bitmap(inputs: np.ndarray, masks: np.ndarray, bitmaps: np
             stamped_positions[(N_pos, pix_y + i, pix_x + j)] = 255.0
     # append new layer
     neigh_bitmaps = np.append(neigh_bitmaps, stamped_positions[:, np.newaxis, :, :], axis=1)
+    if debug:
+        print('x: ', np.reshape(pix_x, (S, N)))
+        print('y: ', np.reshape(pix_y, (S, N)))
 
     return neigh_bitmaps
 

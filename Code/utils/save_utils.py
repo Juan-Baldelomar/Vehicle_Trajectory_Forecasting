@@ -1,8 +1,8 @@
 import pickle
+from tensorflow.keras.optimizers import  Optimizer
 
 
 # -------------------------------------------------- READ/WRITE PKL FILES ------------------------------------------------------------
-
 # store processed data in pkl files
 def save_pkl_data(data, filename, protocol=pickle.HIGHEST_PROTOCOL):
     with open(filename, 'wb') as file:
@@ -16,3 +16,25 @@ def load_pkl_data(filename):
         data = pickle.load(file)
     return data
 
+
+def load_parameters(filename):
+    params = {}
+    with open(filename, 'r') as file:
+        for line in file.readlines():
+            line_values = line.split('=')
+            if len(line_values) < 2:
+                raise ValueError('Wrong Parameter assign value. Expected formar <name> = <value>')
+            params[line_values[0]] = int(line_values[1])
+
+    return params
+
+
+def save_optimizer(optimizer, weights_path, config_path):
+    save_pkl_data(optimizer.get_weights(), weights_path, 4)
+    save_pkl_data(optimizer.get_config(), config_path)
+
+
+def load_optimizer(weights_path, config_path):
+    optimizer = Optimizer.from_config(config_path)
+    optimizer.set_weights(load_pkl_data(weights_path))
+    return optimizer
