@@ -150,9 +150,9 @@ def get_logger(logs_dir):
     if logs_dir is None:
         return None
 
-    valid_path(logs_dir)
+    valid_path(logs_dir + 'train/')
     summary_writer = tf.summary.create_file_writer(
-        logs_dir + "train/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+        logs_dir + 'train/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     return summary_writer
 
