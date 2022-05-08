@@ -146,4 +146,4 @@ data_name = 'train'
 # dl.save_pkl_data(matrixes, 'val_nusc_inps.pkl')
 
 
-params = dl.load_parameters('params.txt')
+params = dl.load_parameters('../training/params.txt')

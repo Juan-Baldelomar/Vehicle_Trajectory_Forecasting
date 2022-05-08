@@ -93,7 +93,7 @@ def split_params(params):
     }
     preload_params = {
         'preload': params.get('preload', False),
-        'model_path': params.get('model_path') ,
+        'model_path': params.get('model_path'),
         'opt_weights_path': params.get('opt_weights_path'),
         'opt_conf_path': params.get('opt_conf_path')
     }
@@ -148,7 +148,7 @@ def train(model_params, batch, epochs, data_path, maps_dir, preload=False, model
     data = load_pkl_data(data_path)
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=maps_dir)
     stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
-    model, optimizer = load_model_and_opt(model_params, dataset, stds, model_params['dk'], preload, model_path, opt_weights_path, opt_conf_path)
+    model, optimizer = load_model_and_opt(model_params, dataset, stds, model_params['sp_dk'], preload, model_path, opt_weights_path, opt_conf_path)
     # start training
     worst_loss = np.inf
     for epoch in range(epochs):
