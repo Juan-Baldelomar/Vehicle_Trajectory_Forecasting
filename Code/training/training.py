@@ -182,12 +182,13 @@ def train(model_params, batch, epochs, data_path, maps_dir, logs_dir=None, prelo
         avg_loss = tf.reduce_mean(losses)
         if avg_loss.numpy() < worst_loss:
             worst_loss = avg_loss.numpy()
-            save_state(model,
-                       optimizer,
-                       model_path=model_path,
-                       opt_weight_path=opt_weights_path,
-                       opt_conf_path=opt_conf_path
-                       )
+            save_state(
+                model,
+                optimizer,
+                model_path=model_path,
+                opt_weight_path=opt_weights_path,
+                opt_conf_path=opt_conf_path
+            )
         print("avg loss", avg_loss)
         # log resutls if desired
         if summary_writer is not None:
