@@ -24,14 +24,17 @@ sp_enc_heads 	: int = 4
 sp_dec_heads	: int = 4
 tm_enc_heads	: int = 4
 tm_dec_heads	: int = 4
-sp_num_encoders: int = 1
-sp_num_decoders: int = 1
-tm_num_encoders: int = 2
-tm_num_decoders: int = 2
+sp_num_encoders : int = 1
+sp_num_decoders : int = 1
+tm_num_encoders : int = 2
+tm_num_decoders : int = 2
 
 
 # OPTIONAL WEIGHT PATH PRELOADING PARAMETERS
 preload          : bool = True
 model_path       : str = Code/weights/best_ModelTraj_test.pkl
-opt_weights_path: str = Code/weights/best_opt_weights_test.pkl
-opt_conf_path : str = Code/config/best_opt_conf_test.pkl
+opt_weights_path : str = Code/weights/best_opt_weights_test.pkl
+opt_conf_path    : str = Code/config/best_opt_conf_test.pkl
+
+# OPTIONAL LOGS DIR
+logs_dir         : str = Code/logs/

@@ -17,11 +17,18 @@ def load_pkl_data(filename):
     return data
 
 
-def valid_paths(*paths):
+def valid_file(*paths):
     for path in paths:
         if not os.path.isfile(path):
             raise RuntimeError('[ERR]: ' + path + ' is not valid file')
     return True
+
+
+def valid_path(*paths):
+    for path in paths:
+        if not os.path.isdir(path):
+            print('[WARN]: path does not exist >>', path, '. Creating it')
+            os.makedirs(path)
 
 
 def load_parameters(filename):

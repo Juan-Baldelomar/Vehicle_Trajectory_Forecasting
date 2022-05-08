@@ -1,9 +1,12 @@
+# scientific libraries
 import numpy as np
 import tensorflow as tf
-
+#utils
+import datetime
+# own libraries
 from Code.models.Model_traj import STTransformer
 from Code.dataset.dataset import buildDataset
-from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_paths, load_parameters
+from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -102,8 +105,8 @@ def split_params(params):
         'data_path': params['data_path'],
         'maps_dir': params['maps_dir']
     }
-
-    return model_params, batch, epochs, preload_params, data_params
+    logs_dir = params.get('logs_dir')
+    return model_params, batch, epochs, preload_params, data_params, logs_dir
 
 
 def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_path=None, opt_weights_path=None, opt_config_path=None):
@@ -115,12 +118,12 @@ def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_pat
     if preload:
         # verify model_path is valid file
         if model_path is not None:
-            valid_paths(model_path)
+            valid_file(model_path)
             # data to call train_step to init weights
             past, future, maps, _ = next(iter(dataset))
             if opt_config_path is not None and opt_weights_path is not None:
                 # load optimizer
-                valid_paths(opt_config_path, opt_weights_path)
+                valid_file(opt_config_path, opt_weights_path)
                 optimizer = load_optimizer(opt_weights_path, opt_config_path, model, (past, future, maps), stds)
             else:
                 # loading optimizer was not possible, perform model.__call__ to init weights
@@ -143,7 +146,20 @@ def save_state(model, optimizer, model_path, opt_weight_path, opt_conf_path):
     save_optimizer(optimizer, opt_weight_path, opt_conf_path)
 
 
-def train(model_params, batch, epochs, data_path, maps_dir, preload=False, model_path=None, opt_weights_path=None, opt_conf_path=None):
+def get_logger(logs_dir):
+    if logs_dir is None:
+        return None
+
+    valid_path(logs_dir)
+    summary_writer = tf.summary.create_file_writer(
+        logs_dir + "train/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+
+    return summary_writer
+
+
+def train(model_params, batch, epochs, data_path, maps_dir, logs_dir=None, preload=False, model_path=None, opt_weights_path=None, opt_conf_path=None):
+    # loggin writer
+    summary_writer = get_logger(logs_dir)
     # load dataset
     data = load_pkl_data(data_path)
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=maps_dir)
@@ -155,7 +171,7 @@ def train(model_params, batch, epochs, data_path, maps_dir, preload=False, model
         print('epoch: ', epoch)
         losses = []
         for (past, future, maps, _) in dataset:
-            losses, loss = model.train_step(past, future, maps, stds, losses, optimizer)
+            losses, loss = model.train_step(past, future, maps, stds, losses, optimizer, summary_writer)
             if np.isnan(loss.numpy()):
                 break
         # l_ade = []
@@ -172,8 +188,11 @@ def train(model_params, batch, epochs, data_path, maps_dir, preload=False, model
                        opt_weight_path=opt_weights_path,
                        opt_conf_path=opt_conf_path
                        )
-
-        print("avg loss", tf.reduce_mean(losses))
+        print("avg loss", avg_loss)
+        # log resutls if desired
+        if summary_writer is not None:
+            with summary_writer.as_default():
+                tf.summary.scalar('loss', avg_loss, step=epoch)
 
 
 if __name__ == '__main__':
@@ -184,7 +203,7 @@ if __name__ == '__main__':
     print(os.getcwd())
     params_path = sys.argv[1]
     params = load_parameters(params_path)
-    model_params, batch, epochs, preload_params, data_params = split_params(params)
-    train(model_params, batch, epochs, **data_params, **preload_params)
+    model_params, batch, epochs, preload_params, data_params, logs_dir = split_params(params)
+    train(model_params, batch, epochs, logs_dir, **data_params, **preload_params)
 
 
