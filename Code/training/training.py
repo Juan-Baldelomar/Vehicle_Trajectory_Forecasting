@@ -56,6 +56,7 @@ def load_optimizer(weights_path, config_path, model, inputs, stds):
     conf['learning_rate'] = CustomSchedule.from_config(conf['learning_rate']['config'])
     # load optimizer conf and weights
     optimizer = tf.keras.optimizers.Adam.from_config(conf)
+    # perform train_step to init weights
     model.train_step(*inputs, stds, [], optimizer)
     optimizer.set_weights(weights)
     return optimizer
@@ -105,22 +106,27 @@ def split_params(params):
     return model_params, batch, epochs, preload_params, data_params
 
 
-def load_model_and_opt(model_params, dataset, stds, preload=False, model_path=None, opt_weights_path=None, opt_config_path=None):
+def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_path=None, opt_weights_path=None, opt_config_path=None):
     # build model
     model = STTransformer(**model_params)
-    # load model if possible
+    learning_rate = CustomSchedule(dk)
+    optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
+    # load model if desired
     if preload:
-        if model_path is not None and valid_paths(model_path):
-            past, future, maps, _ = next(iter(dataset)) 
-            model((past, future, maps), False, stds)
+        # verify model_path is valid file
+        if model_path is not None:
+            valid_paths(model_path)
+            # data to call train_step to init weights
+            past, future, maps, _ = next(iter(dataset))
+            if opt_config_path is not None and opt_weights_path is not None:
+                # load optimizer
+                valid_paths(opt_config_path, opt_weights_path)
+                optimizer = load_optimizer(opt_weights_path, opt_config_path, model, (past, future, maps), stds)
+            else:
+                # loading optimizer was not possible, perform model.__call__ to init weights
+                model((past, future, maps), False, stds)
+            # reload model weights
             model.set_weights(load_pkl_data(model_path))
-        # load optimizer if possible
-        if opt_config_path is not None and opt_weights_path is not None \
-                and valid_paths(opt_config_path, opt_weights_path):
-            optimizer = load_optimizer(opt_weights_path, opt_config_path, model, (past, future, maps), stds)
-    else:
-        learning_rate = CustomSchedule(256)
-        optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
 
     return model, optimizer
 
@@ -142,8 +148,8 @@ def train(model_params, batch, epochs, data_path, maps_dir, preload=False, model
     data = load_pkl_data(data_path)
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=maps_dir)
     stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
-    model, optimizer = load_model_and_opt(model_params, dataset, stds, preload, model_path, opt_weights_path, opt_conf_path)
-
+    model, optimizer = load_model_and_opt(model_params, dataset, stds, model_params['dk'], preload, model_path, opt_weights_path, opt_conf_path)
+    # start training
     worst_loss = np.inf
     for epoch in range(epochs):
         print('epoch: ', epoch)
