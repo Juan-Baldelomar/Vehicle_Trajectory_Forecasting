@@ -98,15 +98,15 @@ def split_params(params):
         'preload': params.get('preload', False),
         'model_path': params.get('model_path'),
         'opt_weights_path': params.get('opt_weights_path'),
-        'opt_conf_path': params.get('opt_conf_path')
+        'opt_conf_path': params.get('opt_conf_path'),
+        'logs_dir': params.get('logs_dir')
     }
 
     data_params = {
         'data_path': params['data_path'],
         'maps_dir': params['maps_dir']
     }
-    logs_dir = params.get('logs_dir')
-    return model_params, batch, epochs, preload_params, data_params, logs_dir
+    return model_params, batch, epochs, preload_params, data_params
 
 
 def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_path=None, opt_weights_path=None, opt_config_path=None):
@@ -204,7 +204,7 @@ if __name__ == '__main__':
     print(os.getcwd())
     params_path = sys.argv[1]
     params = load_parameters(params_path)
-    model_params, batch, epochs, preload_params, data_params, logs_dir = split_params(params)
-    train(model_params, batch, epochs, logs_dir, **data_params, **preload_params)
+    model_params, batch, epochs, preload_params, data_params = split_params(params)
+    train(model_params, batch, epochs, **data_params, **preload_params)
 
 
