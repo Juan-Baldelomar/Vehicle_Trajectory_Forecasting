@@ -64,7 +64,7 @@ def split_params(params):
     # validate all needed params are present
     if params is None:
         raise RuntimeError('[ERR] params is None. Parameters should be loaded from params file')
-    if params.get('feat_size') is None or params.get('seq_size') is None or params.get('neigh_size') is None:
+    if params.get('features_size') is None or params.get('seq_size') is None or params.get('neigh_size') is None:
         raise RuntimeError('[ERR] parameters file should contain basic model params (feat_size, seq_size, neigh_size)')
     if params.get('batch') is None or params.get('epochs') is None:
         raise RuntimeError('[ERR] parameters file should contain basic training params (batch, epochs)')
@@ -75,7 +75,7 @@ def split_params(params):
     batch = params['batch']
     epochs = params['epochs']
     model_params = {
-        'feat_size': params['feat_size'],
+        'features_size': params['features_size'],
         'seq_size': params['seq_size'],
         'neigh_size': params['neigh_size'],
         'sp_dk': params.get('sp_dk', 256),
@@ -93,12 +93,12 @@ def split_params(params):
         'preload': params.get('preload', False),
         'model_path': params.get('model_path') ,
         'opt_weights_path': params.get('opt_weights_path'),
-        'opt_config_path': params.get('opt_config_path')
+        'opt_conf_path': params.get('opt_config_path')
     }
 
     data_params = {
         'data_path': params['data_path'],
-        'maps_dir:': params['maps_dir']
+        'maps_dir': params['maps_dir']
     }
 
     return model_params, batch, epochs, preload_params, data_params
@@ -169,7 +169,10 @@ def train(model_params, batch, epochs, data_path, maps_dir, preload=False, model
 
 if __name__ == '__main__':
     import sys
-    print(tf.keras.__version__)
+    import os
+    path = os.path.dirname(os.path.realpath(__file__))
+    os.chdir(path + '/../..')
+    print(os.getcwd())
     params_path = sys.argv[1]
     params = load_parameters(params_path)
     model_params, batch, epochs, preload_params, data_params = split_params(params)

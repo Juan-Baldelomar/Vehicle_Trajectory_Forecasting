@@ -61,7 +61,7 @@ def load_parameters(filename):
             elif type_ == 'float':
                 value = float(value)
             elif type_ == 'bool':
-                value = bool(value)
+                value = value == 'True' or value == 'true' or value == '1'
             params[id_] = value
 
     return params

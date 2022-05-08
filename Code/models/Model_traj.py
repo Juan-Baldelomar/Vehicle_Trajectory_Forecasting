@@ -321,21 +321,21 @@ class SemanticMapFeatures(keras.layers.Layer):
 
 
 class STTransformer(keras.Model):
-    def __init__(self, features_size, max_seq_size, max_neighbors_size,
+    def __init__(self, features_size, seq_size, neigh_size,
                  sp_dk=256, sp_enc_heads=8, sp_dec_heads=8, sp_num_encoders=6, sp_num_decoders=6,
                  tm_dk=256, tm_enc_heads=8, tm_dec_heads=8, tm_num_encoders=6, tm_num_decoders=6,
                  dec_hidden_size=256, drop_rate=0.1):
         super(STTransformer, self).__init__()
 
         # layers
-        self.semantic_map = SemanticMapFeatures(3, max_neighbors_size, out_dims=[16, 16, 1], kernel_sizes=[5, 5, 7],
+        self.semantic_map = SemanticMapFeatures(3, neigh_size, out_dims=[16, 16, 1], kernel_sizes=[5, 5, 7],
                                                 strides=[2, 2, 2])
-        self.time_transformer = Transformer(features_size, max_seq_size, dk=tm_dk, enc_heads=tm_enc_heads,
+        self.time_transformer = Transformer(features_size, seq_size, dk=tm_dk, enc_heads=tm_enc_heads,
                                             dec_heads=tm_dec_heads,
                                             num_encoders=tm_num_encoders, num_decoders=tm_num_decoders,
                                             use_pos_emb=True)
 
-        self.spatial_transformer = Transformer(features_size, max_neighbors_size, dk=sp_dk, enc_heads=sp_enc_heads,
+        self.spatial_transformer = Transformer(features_size, neigh_size, dk=sp_dk, enc_heads=sp_enc_heads,
                                                dec_heads=sp_dec_heads,
                                                num_encoders=sp_num_encoders, num_decoders=sp_num_decoders,
                                                use_decoder=False)
