@@ -383,7 +383,7 @@ class STTransformer(keras.Model):
         output = mask_output(output, squeezed_speed_mask, 'seq')
         output = tf.concat([future[:, 0, :, :][:, :, tf.newaxis, :], output], axis=2)
         output = tf.math.cumsum(output, axis=2)
-        output = tf.transpose(output, [0, 2, 1, 3])
+        output = tf.transpose(output, [0, 2, 1, 3])                   # (batch, seq, neigh, [x,y])
         output = mask_output(output, squeezed_neigh_mask, 'neigh')
         # output = self.linear(output)
         return output
@@ -413,19 +413,15 @@ class STTransformer(keras.Model):
         optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return losses, loss
 
-    def eval_step(self, past, future, maps):
-        # targets
-        tar = future[0]
-
-        targets = tf.transpose(tar[:, :, :, :2], [0, 2, 1, 3])
-        preds = self((past, future, maps), training=False)
+    def eval_step(self, past, future, maps, stds):
+        preds = self((past, future, maps), False, stds)
 
         # transpose sequence with neigh dimension
-        preds = tf.transpose(preds, [0, 2, 1, 3])
+        # targets = tf.transpose(future[0], [0, 2, 1, 3])
 
         # reshape to remove batch
-        targets = tf.reshape(targets, (-1, 8, 2))
-        preds = tf.reshape(preds, (-1, 8, 2))
+        targets = tf.reshape(future[0], (-1, 25, 2))
+        preds = tf.reshape(preds, (-1, 25, 2))
 
         return ADE(targets.numpy(), preds.numpy())
 

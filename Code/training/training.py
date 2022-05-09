@@ -171,29 +171,30 @@ def train(model_params, batch, epochs, data_path, maps_dir, logs_dir=None, prelo
         print('epoch: ', epoch)
         losses = []
         for (past, future, maps, _) in dataset:
-            losses, loss = model.train_step(past, future, maps, stds, losses, optimizer, summary_writer)
+            losses, loss = model.train_step(past, future, maps, stds, losses, optimizer)
             if np.isnan(loss.numpy()):
                 break
-        # l_ade = []
-        # for batch in dataset:
-        #  ade = eval_step(batch)
-        #  l_ade.append(ade)
-        # print('ade: ', np.mean(np.array(l_ade)))
-        avg_loss = tf.reduce_mean(losses)
-        if avg_loss.numpy() < worst_loss:
-            worst_loss = avg_loss.numpy()
-            save_state(
-                model,
-                optimizer,
-                model_path=model_path,
-                opt_weight_path=opt_weights_path,
-                opt_conf_path=opt_conf_path
-            )
-        print("avg loss", avg_loss)
-        # log resutls if desired
-        if summary_writer is not None:
-            with summary_writer.as_default():
-                tf.summary.scalar('loss', avg_loss, step=epoch)
+        l_ade = []
+        for (past, future, maps, _) in dataset:
+            ade = model.eval_step(past, future, maps, stds)
+            l_ade.append(ade)
+            print('ade: ', ade)
+        print('mean ade: ', np.mean(np.array(l_ade)))
+        # avg_loss = tf.reduce_mean(losses)
+        # if avg_loss.numpy() < worst_loss:
+        #     worst_loss = avg_loss.numpy()
+        #     save_state(
+        #         model,
+        #         optimizer,
+        #         model_path=model_path,
+        #         opt_weight_path=opt_weights_path,
+        #         opt_conf_path=opt_conf_path
+        #     )
+        # print("avg loss", avg_loss)
+        # # log resutls if desired
+        # if summary_writer is not None:
+        #     with summary_writer.as_default():
+        #         tf.summary.scalar('loss', avg_loss, step=epoch)
 
 
 if __name__ == '__main__':
