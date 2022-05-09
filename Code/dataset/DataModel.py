@@ -205,15 +205,12 @@ class ShiftTimeStep(ShiftsEgoStep):
 
 
 class ShiftsBitmap(BitmapFeature):
-    def __init__(self):
+    def __init__(self, renderer_config=None, rows=256, cols=256, resolution=1):
         super(ShiftsBitmap, self).__init__()
         self.renderer = None
+        self.set_renderer(renderer_config, rows, cols, resolution)
 
-    def getMasks(self, timestep: ShiftTimeStep, map_name, renderer_conf=None):
-        if self.renderer is None or renderer_conf is not None:
-            print('[WARN] self.renderer should not be None, calling self.set_renderer()') if self.renderer is None else None
-            self.set_renderer(renderer_conf)
-
+    def getMasks(self, timestep: ShiftTimeStep, map_name, dummy_param=None):
         scene = read_scene_from_file(map_name)
         # track = scene.past_ego_track[0]
         # create virtual Track
@@ -232,15 +229,15 @@ class ShiftsBitmap(BitmapFeature):
                                      axis=0)
         return virtual_img
 
-    def set_renderer(self, renderer_config=None):
+    def set_renderer(self, renderer_config=None, rows=256, cols=256, resolution=1):
         if renderer_config is None:
             # Define a renderer config
             renderer_config = {
                 # parameters of feature maps to render
                 'feature_map_params': {
-                    'rows': 256,
-                    'cols': 256,
-                    'resolution': 200 / 256.0,  # number of meters in one pixel
+                    'rows': rows,
+                    'cols': cols,
+                    'resolution': resolution,  # number of meters in one pixel
                 },
                 'renderers_groups': [
                     {

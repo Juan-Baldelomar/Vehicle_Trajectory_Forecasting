@@ -101,19 +101,19 @@ file_id = inputs[1225]['ego_id'] + '.npz'
 ego_id, _ = file_id.split('_')
 ego_vehicle = shifts_loader.dataset.ego_vehicles[ego_id]
 
-img_comp = np.load('../data/maps/shifts/chunk10/' + file_id)
-img = img_comp['bitmaps']
-#img = np.transpose(img, [1, 2, 0])
-plt.figure(figsize=(10, 10))
-plt.imshow(img[:, :, 1])
-plt.show()
+# img_comp = np.load('../data/maps/shifts/chunk10/' + file_id)
+# img = img_comp['bitmaps']
+# #img = np.transpose(img, [1, 2, 0])
+# plt.figure(figsize=(10, 10))
+# plt.imshow(img[:, :, 1])
+# plt.show()
 #
 inps = inputQuery.get_egocentered_input(ego_vehicle, shifts_loader.dataset.agents, 50, 5, 0,
                                         24, bitmap_extractor=shifts_bitmap)
 
 #
 yaw = list(ego_vehicle.timesteps.values())[24].rot
-bitmaps = stamp_positions_in_bitmap(inps[0], inps[1], inps[2], 256 / 200.0, yaw)
+bitmaps = stamp_positions_in_bitmap(inps[0][0:25], inps[1][0:25], inps[2], 256 / 200.0, yaw)
 bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
 plt.figure(figsize=(10, 10))
 plt.imshow(bitmaps[0])
@@ -144,6 +144,3 @@ plt.show()
 # matrixes, ids = inputQuery.get_single_Input(7, 8, 7)
 #
 # dl.save_pkl_data(matrixes, 'val_nusc_inps.pkl')
-
-
-params = dl.load_parameters('../training/params.txt')

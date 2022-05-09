@@ -301,6 +301,7 @@ class SemanticMapFeatures(keras.layers.Layer):
         # self.ConvLayers = [keras.layers.Conv2D(out_dims[i], kernel_sizes[i], strides=strides[i], data_format='channels_first') for i in range(N)]
         # self.reshape = keras.layers.Reshape([-1, neighbors, 28 * 28])
         self.ConvLayers = []
+        self.dense = tf.keras.layers.Dense(32, activation='relu')
         h, w, c = 256, 256, 3
         for i in range(N):
             self.ConvLayers.append(
@@ -317,6 +318,7 @@ class SemanticMapFeatures(keras.layers.Layer):
 
         output = tf.keras.activations.tanh(output)
         output = tf.reshape(output, [-1, self.neighbors, 28 * 28])
+        output = self.dense(output)
         return output
 
 
@@ -328,8 +330,8 @@ class STTransformer(keras.Model):
         super(STTransformer, self).__init__()
 
         # layers
-        self.semantic_map = SemanticMapFeatures(3, neigh_size, out_dims=[16, 16, 1], kernel_sizes=[5, 5, 7],
-                                                strides=[2, 2, 2])
+        self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7],
+                                                strides=[2, 2, 2, 2])
         self.time_transformer = Transformer(features_size, seq_size, dk=tm_dk, enc_heads=tm_enc_heads,
                                             dec_heads=tm_dec_heads,
                                             num_encoders=tm_num_encoders, num_decoders=tm_num_decoders,
@@ -419,7 +421,7 @@ class STTransformer(keras.Model):
         # transpose sequence with neigh dimension
         preds
         targets = tf.transpose(future[0], [0, 2, 1, 3])
-        preds   = tf.transpose(preds, [0, 2, 1, 3])
+        preds = tf.transpose(preds, [0, 2, 1, 3])
         # reshape to remove batch
         targets = tf.reshape(targets, (-1, 26, 2))
         preds = tf.reshape(preds, (-1, 26, 2))
