@@ -98,18 +98,18 @@ def split_params(params):
         'preload': params.get('preload', False),
         'model_path': params.get('model_path'),
         'opt_weights_path': params.get('opt_weights_path'),
-        'opt_conf_path': params.get('opt_conf_path'),
-        'logs_dir': params.get('logs_dir')
+        'opt_conf_path': params.get('opt_conf_path')
     }
 
     data_params = {
         'data_path': params['data_path'],
         'maps_dir': params['maps_dir']
     }
-    return model_params, batch, epochs, preload_params, data_params
+    logs_dir = params.get('logs_dir')
+    return model_params, batch, epochs, preload_params, data_params, logs_dir
 
 
-def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_path=None, opt_weights_path=None, opt_config_path=None):
+def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_path=None, opt_weights_path=None, opt_conf_path=None):
     # build model
     model = STTransformer(**model_params)
     learning_rate = CustomSchedule(dk)
@@ -121,10 +121,10 @@ def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_pat
             valid_file(model_path)
             # data to call train_step to init weights
             past, future, maps, _ = next(iter(dataset))
-            if opt_config_path is not None and opt_weights_path is not None:
+            if opt_conf_path is not None and opt_weights_path is not None:
                 # load optimizer
-                valid_file(opt_config_path, opt_weights_path)
-                optimizer = load_optimizer(opt_weights_path, opt_config_path, model, (past, future, maps), stds)
+                valid_file(opt_conf_path, opt_weights_path)
+                optimizer = load_optimizer(opt_weights_path, opt_conf_path, model, (past, future, maps), stds)
             else:
                 # loading optimizer was not possible, perform model.__call__ to init weights
                 model((past, future, maps), False, stds)
@@ -157,55 +157,67 @@ def get_logger(logs_dir):
     return summary_writer
 
 
-def train(model_params, batch, epochs, data_path, maps_dir, logs_dir=None, preload=False, model_path=None, opt_weights_path=None, opt_conf_path=None):
+def eval_model(model, dataset, stds):
+    l_ade = []
+    for (past, future, maps, _) in dataset:
+        ade = model.eval_step(past, future, maps, stds)
+        l_ade.append(ade)
+        print('ade: ', ade)
+    print('mean ade: ', np.mean(np.array(l_ade)))
+
+
+def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=None):
     # loggin writer
     summary_writer = get_logger(logs_dir)
-    # load dataset
-    data = load_pkl_data(data_path)
-    dataset, std_x, std_y = buildDataset(data, batch, pre_path=maps_dir)
-    stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
-    model, optimizer = load_model_and_opt(model_params, dataset, stds, model_params['sp_dk'], preload, model_path, opt_weights_path, opt_conf_path)
     # start training
-    #worst_loss = np.inf
-    for epoch in range(1):
+    worst_loss = np.inf
+    for epoch in range(epochs):
         print('epoch: ', epoch)
         losses = []
         for (past, future, maps, _) in dataset:
             losses, loss = model.train_step(past, future, maps, stds, losses, optimizer)
             if np.isnan(loss.numpy()):
                 break
-    l_ade = []
-    for (past, future, maps, _) in dataset:
-         ade = model.eval_step(past, future, maps, stds)
-         l_ade.append(ade)
-         print('ade: ', ade)
-    print('mean ade: ', np.mean(np.array(l_ade)))
-        # avg_loss = tf.reduce_mean(losses)
-        # if avg_loss.numpy() < worst_loss:
-        #     worst_loss = avg_loss.numpy()
-        #     save_state(
-        #         model,
-        #         optimizer,
-        #         model_path=model_path,
-        #         opt_weight_path=opt_weights_path,
-        #         opt_conf_path=opt_conf_path
-        #     )
-        # print("avg loss", avg_loss)
-        # # log resutls if desired
-        # if summary_writer is not None:
-        #     with summary_writer.as_default():
-        #         tf.summary.scalar('loss', avg_loss, step=epoch)
+        avg_loss = tf.reduce_mean(losses)
+        if avg_loss.numpy() < worst_loss:
+            worst_loss = avg_loss.numpy()
+            save_state(
+                model,
+                optimizer,
+                model_path=model_path,
+                opt_weight_path=opt_weights_path,
+                opt_conf_path=opt_conf_path
+            )
+        print("avg loss", avg_loss)
+        # log resutls if desired
+        if summary_writer is not None:
+            with summary_writer.as_default():
+                tf.summary.scalar('loss', avg_loss, step=epoch)
+    # eval model
+    eval_model(model, dataset, stds)
 
 
 if __name__ == '__main__':
     import sys
     import os
+    # change working directory
     path = os.path.dirname(os.path.realpath(__file__))
     os.chdir(path + '/../..')
-    print(os.getcwd())
     params_path = sys.argv[1]
+    # load parameters
     params = load_parameters(params_path)
-    model_params, batch, epochs, preload_params, data_params = split_params(params)
-    train(model_params, batch, epochs, **data_params, **preload_params)
+    model_params, batch, epochs, preload_params, data_params, logs_dir = split_params(params)
+    model_path = preload_params['model_path']
+    opt_weights_path = preload_params['opt_weights_path']
+    opt_conf_path = preload_params['opt_conf_path']
+    dk = model_params['sp_dk']
+    # get dataset
+    data = load_pkl_data(data_params['data_path'])
+    dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'])
+    stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
+    # get model
+    model, optimizer = load_model_and_opt(model_params, dataset, stds, dk, **preload_params)
+    # train model
+    train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir)
 
 
