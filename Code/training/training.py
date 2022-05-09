@@ -166,20 +166,20 @@ def train(model_params, batch, epochs, data_path, maps_dir, logs_dir=None, prelo
     stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
     model, optimizer = load_model_and_opt(model_params, dataset, stds, model_params['sp_dk'], preload, model_path, opt_weights_path, opt_conf_path)
     # start training
-    worst_loss = np.inf
-    for epoch in range(epochs):
+    #worst_loss = np.inf
+    for epoch in range(1):
         print('epoch: ', epoch)
         losses = []
         for (past, future, maps, _) in dataset:
             losses, loss = model.train_step(past, future, maps, stds, losses, optimizer)
             if np.isnan(loss.numpy()):
                 break
-        l_ade = []
-        for (past, future, maps, _) in dataset:
-            ade = model.eval_step(past, future, maps, stds)
-            l_ade.append(ade)
-            print('ade: ', ade)
-        print('mean ade: ', np.mean(np.array(l_ade)))
+    l_ade = []
+    for (past, future, maps, _) in dataset:
+         ade = model.eval_step(past, future, maps, stds)
+         l_ade.append(ade)
+         print('ade: ', ade)
+    print('mean ade: ', np.mean(np.array(l_ade)))
         # avg_loss = tf.reduce_mean(losses)
         # if avg_loss.numpy() < worst_loss:
         #     worst_loss = avg_loss.numpy()
