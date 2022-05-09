@@ -317,7 +317,7 @@ class SemanticMapFeatures(keras.layers.Layer):
             output = layer(output)
 
         output = tf.keras.activations.tanh(output)
-        output = tf.reshape(output, [-1, self.neighbors, 28 * 28])
+        output = tf.reshape(output, [-1, self.neighbors, 12 * 12])
         output = self.dense(output)
         return output
 
