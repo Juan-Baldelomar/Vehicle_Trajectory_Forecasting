@@ -419,7 +419,6 @@ class STTransformer(keras.Model):
         preds = self((past, future, maps), False, stds)
 
         # transpose sequence with neigh dimension
-        preds
         targets = tf.transpose(future[0], [0, 2, 1, 3])
         preds = tf.transpose(preds, [0, 2, 1, 3])
         # reshape to remove batch
