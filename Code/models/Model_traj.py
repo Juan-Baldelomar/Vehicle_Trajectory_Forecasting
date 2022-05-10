@@ -384,8 +384,9 @@ class STTransformer(keras.Model):
         output = tf.transpose(output, [0, 2, 1, 3])                     # (batch, neigh, seq, feat)
         # time transformer
         past_time_input = tf.transpose(past, [0, 2, 1, 3])
+        future_time_input = tf.transpose(future, [0, 2, 1, 3])
         time_input = [past_time_input, output]
-        output = self.time_transformer([time_input, past_seq_masks, future, futu_seq_masks], training)
+        output = self.time_transformer([time_input, past_seq_masks, future_time_input, futu_seq_masks], training)
 
         output = tf.transpose(output, [0, 2, 1, 3])                     # (batch, seq, neigh, feat)
         look_mask = get_look_ahead_mask(future)
