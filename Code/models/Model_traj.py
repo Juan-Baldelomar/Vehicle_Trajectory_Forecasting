@@ -383,7 +383,8 @@ class STTransformer(keras.Model):
         #output = output[:, 1:, :, :] - output[:, :-1, :, :]
         output = tf.transpose(output, [0, 2, 1, 3])                     # (batch, neigh, seq, feat)
         # time transformer
-        time_input = [past, output]
+        past_time_input = tf.transpose(past, [0, 2, 1, 3])
+        time_input = [past_time_input, output]
         output = self.time_transformer([time_input, past_seq_masks, future, futu_seq_masks], training)
 
         output = tf.transpose(output, [0, 2, 1, 3])                     # (batch, seq, neigh, feat)
