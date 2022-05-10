@@ -156,8 +156,8 @@ def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):
         futu_speed_masks.append(adapt_seq_mask(input_['future_seqMask'])[:, :, :, 1:])
         past_neigh_masks.append(adapt_spa_mask(input_['past_neighMask']))
         futu_neigh_masks.append(adapt_spa_mask(input_['future_neighMask']))
-        past_seq_masks.append(input_['past_seqMask'].astype(np.float32))
-        future_seq_masks.append(input_['future_seqMask'].astype(np.float32))
+        past_seq_masks.append(adapt_seq_mask(input_['past_seqMask']))
+        future_seq_masks.append(adapt_seq_mask(input_['future_seqMask']))
         yaws.append(float(input_['origin_yaw']))
 
     # get each agent trajectory origin as 0, 0
