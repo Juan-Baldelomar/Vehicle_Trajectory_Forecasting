@@ -175,7 +175,8 @@ def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=N
         print('epoch: ', epoch)
         losses = []
         for (past, future, maps, _) in dataset:
-            losses, loss = model.train_step(past, future, maps, stds, losses, optimizer)
+            loss = model.train_step(past, future, maps, stds, optimizer)
+            losses.append(loss)
             if np.isnan(loss.numpy()):
                 break
         avg_loss = tf.reduce_mean(losses)

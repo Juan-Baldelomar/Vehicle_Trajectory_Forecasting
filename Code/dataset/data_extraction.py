@@ -50,4 +50,6 @@ def join_data(prepath, start, end):
     dl.save_pkl_data(inputs, '../data/shifts_data_all_p4.pkl', protocol=4)
 
 
-shifts_extraction(past_length=25, future_length=25, neighbors=5, get_bitmaps=True, pickle=False, data_start=14, data_end=18)
+shifts_extraction(past_length=25, future_length=25, neighbors=5, get_bitmaps=True, pickle=False, data_start=1, data_end=2)
+
+join_data('../data/shifts_data_chunk', start=1, end=18)

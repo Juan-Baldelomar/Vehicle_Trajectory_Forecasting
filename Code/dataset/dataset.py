@@ -99,7 +99,7 @@ def stamp_positions_by_batch(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.
 
 def adapt_spa_mask(mask):
     return mask[np.newaxis, :, np.newaxis, :].astype(np.float32)   # (<new axis head>, seq, <new axis neighbor>, neighbors)
-                                                                   # to broadcast when doing addition in the attention layer
+                                                                   #  to broadcast when doing addition in the attention layer
 
 
 def adapt_seq_mask(mask):
@@ -148,7 +148,7 @@ def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):
     past_speed_masks, past_neigh_masks = [], []
     futu_speed_masks, futu_neigh_masks = [], []
     yaws = []
-    past_seq_masks = []
+    past_seq_masks, future_seq_masks = [], []
 
     # get masks
     for input_ in inputs:
@@ -157,6 +157,7 @@ def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):
         past_neigh_masks.append(adapt_spa_mask(input_['past_neighMask']))
         futu_neigh_masks.append(adapt_spa_mask(input_['future_neighMask']))
         past_seq_masks.append(input_['past_seqMask'].astype(np.float32))
+        future_seq_masks.append(input_['future_seqMask'].astype(np.float32))
         yaws.append(float(input_['origin_yaw']))
 
     # get each agent trajectory origin as 0, 0
@@ -175,8 +176,8 @@ def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):
 
     # get datasets
     past_ds = tf.data.Dataset.from_tensor_slices((past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks))
-    future_ds = tf.data.Dataset.from_tensor_slices((future_shifted, future_speed, futu_neigh_masks, futu_speed_masks))
-    target_ds = tf.data.Dataset.from_tensor_slices((future, full_traj, yaws))
+    future_ds = tf.data.Dataset.from_tensor_slices((future, future_speed, future_seq_masks, futu_neigh_masks, futu_speed_masks))
+    target_ds = tf.data.Dataset.from_tensor_slices((future_shifted, full_traj, yaws))
     bitmaps_ds = tf.data.Dataset.from_tensor_slices((ids, past, past_neigh_masks, yaws))
     bitmaps_ds = bitmaps_ds.map(lambda id_, past_xy, masks, yaw: tf.numpy_function(func=get_npz_bitmaps,
                                                                                    inp=[id_, past_xy, masks, yaw],

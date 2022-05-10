@@ -279,7 +279,7 @@ class Transformer(keras.Model):
         if use_decoder:
             self.decoder = Decoder(features_size, max_seq_size, dk, num_heads=dec_heads,
                                    num_decoders=num_decoders, use_pos_emb=use_pos_emb)
-            self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
+            #self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
 
     def call(self, inputs, training, use_look_mask=True):
         inp, inp_masks, targets, tar_masks = inputs
@@ -287,7 +287,7 @@ class Transformer(keras.Model):
         if self.use_decoder:
             look_mask = get_look_ahead_mask(targets) if use_look_mask else None
             output = self.decoder(targets, enc_out, look_mask, tar_masks, training)
-            output = self.linear(output)
+            #output = self.linear(output)
         else:
             output = enc_out
         return output
@@ -328,7 +328,8 @@ class STTransformer(keras.Model):
                  tm_dk=256, tm_enc_heads=8, tm_dec_heads=8, tm_num_encoders=6, tm_num_decoders=6,
                  dec_hidden_size=256, drop_rate=0.1):
         super(STTransformer, self).__init__()
-
+        self.seq_size = seq_size
+        self.neigh_size = neigh_size
         # layers
         self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7],
                                                 strides=[2, 2, 2, 2])
@@ -341,7 +342,11 @@ class STTransformer(keras.Model):
                                                dec_heads=sp_dec_heads,
                                                num_encoders=sp_num_encoders, num_decoders=sp_num_decoders,
                                                use_decoder=False)
-        # self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
+
+        self.decoder = Decoder(features_size, seq_size, sp_dk, num_heads=sp_dec_heads,
+                               num_decoders=sp_num_decoders, use_pos_emb=False)
+
+        self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
 
         # training
         self.loss_object = tf.keras.losses.MeanSquaredError()
@@ -356,10 +361,10 @@ class STTransformer(keras.Model):
         # neighbors, neighbors_mask, tar_neighbors, tar_neighbors_mask = inputs[1]
 
         past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks = inputs[0]
-        future, future_speed, futu_neigh_masks, futu_speed_masks = inputs[1]
+        future, future_speed, futu_seq_masks, futu_neigh_masks, futu_speed_masks = inputs[1]
         maps = inputs[2]
 
-        squeezed_speed_mask = tf.squeeze(futu_speed_masks)
+        squeezed_seq_mask = tf.squeeze(futu_seq_masks)
         squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
 
         proc_maps = self.semantic_map(maps)
@@ -373,16 +378,23 @@ class STTransformer(keras.Model):
         # speeds = tf.concat((speeds, tm_proc_maps), axis=-1)
 
         # spatial transformer
-        output = self.spatial_transformer([past, past_neigh_masks, future, futu_neigh_masks], training,
+        output = self.spatial_transformer([past, past_neigh_masks, None, None], training,
                                           use_look_mask=False)
-        output = output[:, 1:, :, :] - output[:, :-1, :, :]
-        output = tf.transpose(output, [0, 2, 1, 3])
+        #output = output[:, 1:, :, :] - output[:, :-1, :, :]
+        output = tf.transpose(output, [0, 2, 1, 3])                     # (batch, neigh, seq, feat)
         # time transformer
-        time_input = [past_speed, output]
-        output = self.time_transformer([time_input, past_speed_masks, future_speed, futu_speed_masks], training)
+        time_input = [past, output]
+        output = self.time_transformer([time_input, past_seq_masks, future, futu_seq_masks], training)
+
+        output = tf.transpose(output, [0, 2, 1, 3])                     # (batch, seq, neigh, feat)
+        look_mask = get_look_ahead_mask(future)
+        output = self.decoder(future, output, look_mask, futu_neigh_masks, training)
+        output = self.linear(output)
+
+        output = tf.transpose(output, [0, 2, 1, 3])                     # (batch, neigh, seq, feat)
         # masking output
         output = output * stds
-        output = mask_output(output, squeezed_speed_mask, 'seq')
+        output = mask_output(output, squeezed_seq_mask, 'seq')
         output = tf.concat([future[:, 0, :, :][:, :, tf.newaxis, :], output], axis=2)
         output = tf.math.cumsum(output, axis=2)
         output = tf.transpose(output, [0, 2, 1, 3])                   # (batch, seq, neigh, [x,y])
@@ -400,7 +412,7 @@ class STTransformer(keras.Model):
         return loss_
 
     # @tf.function
-    def train_step(self, past, future, maps, stds, losses, optimizer):
+    def train_step(self, past, future, maps, stds, optimizer):
         # remove np.newaxis to match MultiHeadAttention
         neigh_out_masks = tf.squeeze(future[2])
 
@@ -409,11 +421,10 @@ class STTransformer(keras.Model):
             loss = self.loss_function(future[0], predictions, neigh_out_masks)
 
         print('loss: ', loss)
-        losses.append(loss)
         gradients = tape.gradient(loss, self.trainable_variables)
         gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
         optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        return losses, loss
+        return loss
 
     def eval_step(self, past, future, maps, stds):
         preds = self((past, future, maps), False, stds)
@@ -427,8 +438,149 @@ class STTransformer(keras.Model):
 
         return ADE(targets.numpy(), preds.numpy())
 
+    def inference(self, past, future, maps, stds):
+        output = tf.zeros(future[0].shape).numpy()
+        output[:, 0:2, :, :] = future[0][:, 0:2, :, :]
+        output = tf.constant(output)
+        future[0] = output
+
+        for i in range(2, self.seq_size - 2):
+            output = self((past, future, maps), False, stds)
+            # convert to numpy
+            output = output.numpy()
+            future_speed = future_speed.numpy()
+
+            # prepate for next it
+            current_output = output[:, i, :, :]
+            output[:, i + 1, :, :] = current_output
+            future_speed[:, :, i - 1:i, :] = np.transpose(output[:, i:i + 1, :, :] - output[:, i - 1:i, :, :],
+                                                          [0, 2, 1, 3])
+
+            # rewrite for next it
+            output = tf.constant(output)
+            future_speed = tf.constant(future_speed)
+            #neigh_inputs[2] = output
+            #speed_inputs[2] = future_speed
+
+        return output
+
     def save_model(self, filepath='Code/weights/best_ModelTraj_weights'):
         self.final_checkpoint.write(filepath)
 
     def load_model(self, filepath='Code/weights/best_ModelTraj_weights'):
         self.final_checkpoint.restore(filepath)
+
+
+# model in which inputs of neihgbors and sequences will be in the same dimension
+# class STE_Transformer(keras.Model):
+#     def __init__(self, features_size, seq_size, neigh_size,
+#                  sp_dk=256, sp_enc_heads=8, sp_dec_heads=8, sp_num_encoders=6, sp_num_decoders=6,
+#                  tm_dk=256, tm_enc_heads=8, tm_dec_heads=8, tm_num_encoders=6, tm_num_decoders=6,
+#                  dec_hidden_size=256, drop_rate=0.1):
+#         super(STE_Transformer, self).__init__()
+#
+#         # layers
+#         self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7],
+#                                                 strides=[2, 2, 2, 2])
+#         self.time_transformer = Transformer(features_size, seq_size, dk=tm_dk, enc_heads=tm_enc_heads,
+#                                             dec_heads=tm_dec_heads,
+#                                             num_encoders=tm_num_encoders, num_decoders=tm_num_decoders,
+#                                             use_pos_emb=True)
+#
+#         self.spatial_transformer = Transformer(features_size, neigh_size, dk=sp_dk, enc_heads=sp_enc_heads,
+#                                                dec_heads=sp_dec_heads,
+#                                                num_encoders=sp_num_encoders, num_decoders=sp_num_decoders,
+#                                                use_decoder=False)
+#         # self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
+#
+#         # training
+#         self.loss_object = tf.keras.losses.MeanSquaredError()
+#         self.final_checkpoint = tf.train.Checkpoint(model=self)
+#
+#     def call(self, inputs, training, stds):
+#         """
+#           speeds.shape = (batch, neighbors, seq, feats)
+#           stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
+#         """
+#         # speeds, speeds_mask, tar_speeds, tar_speeds_masks            = inputs[0]
+#         # neighbors, neighbors_mask, tar_neighbors, tar_neighbors_mask = inputs[1]
+#
+#         past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks = inputs[0]
+#         future, future_speed, futu_neigh_masks, futu_speed_masks = inputs[1]
+#         maps = inputs[2]
+#
+#         squeezed_speed_mask = tf.squeeze(futu_speed_masks)
+#         squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
+#
+#         proc_maps = self.semantic_map(maps)
+#         # multiply by ones to match all neighbors shape, except features dim
+#         sp_desired_shape = past.shape[:-1] + proc_maps.shape[-1]
+#         # -tm_desired_shape = speeds.shape[:-1] + proc_maps.shape[-1]
+#         sp_proc_maps = proc_maps[:, tf.newaxis, :, :] * tf.ones(sp_desired_shape)
+#         # -tm_proc_maps = proc_maps[:, tf.newaxis, tf.newaxis, :] * tf.ones(tm_desired_shape)
+#
+#         past = tf.concat((past, sp_proc_maps), axis=-1)
+#         # speeds = tf.concat((speeds, tm_proc_maps), axis=-1)
+#
+#         past = tf.reshape(past, [-1, 26, feat_size])
+#
+#         # spatial transformer
+#         output = self.spatial_transformer([past, past_neigh_masks, future, futu_neigh_masks], training,
+#                                           use_look_mask=False)
+#         output = output[:, 1:, :, :] - output[:, :-1, :, :]
+#         output = tf.transpose(output, [0, 2, 1, 3])
+#         # time transformer
+#         time_input = [past_speed, output]
+#         output = self.time_transformer([time_input, past_speed_masks, future_speed, futu_speed_masks], training)
+#         # masking output
+#         output = output * stds
+#         output = mask_output(output, squeezed_speed_mask, 'seq')
+#         output = tf.concat([future[:, 0, :, :][:, :, tf.newaxis, :], output], axis=2)
+#         output = tf.math.cumsum(output, axis=2)
+#         output = tf.transpose(output, [0, 2, 1, 3])                   # (batch, seq, neigh, [x,y])
+#         output = mask_output(output, squeezed_neigh_mask, 'neigh')
+#         # output = self.linear(output)
+#         return output
+#
+#     def loss_function(self, real, pred, neighbors_mask):
+#         # adapt mask and make mask shape match pred
+#         # neighbors_mask = 1 - neighbors_mask
+#         # neighbors_mask = neighbors_mask[:, :, :, np.newaxis]
+#         # pred_masked = pred * neighbors_mask
+#         pred_masked = pred
+#         loss_ = self.loss_object(real, pred_masked)
+#         return loss_
+#
+#     # @tf.function
+#     def train_step(self, past, future, maps, stds, losses, optimizer):
+#         # remove np.newaxis to match MultiHeadAttention
+#         neigh_out_masks = tf.squeeze(future[2])
+#
+#         with tf.GradientTape() as tape:
+#             predictions = self((past, future, maps), True, stds)
+#             loss = self.loss_function(future[0], predictions, neigh_out_masks)
+#
+#         print('loss: ', loss)
+#         losses.append(loss)
+#         gradients = tape.gradient(loss, self.trainable_variables)
+#         gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
+#         optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+#         return losses, loss
+#
+#     def eval_step(self, past, future, maps, stds):
+#         preds = self((past, future, maps), False, stds)
+#
+#         # transpose sequence with neigh dimension
+#         targets = tf.transpose(future[0], [0, 2, 1, 3])
+#         preds = tf.transpose(preds, [0, 2, 1, 3])
+#         # reshape to remove batch
+#         targets = tf.reshape(targets, (-1, 26, 2))
+#         preds = tf.reshape(preds, (-1, 26, 2))
+#
+#         return ADE(targets.numpy(), preds.numpy())
+#
+#     def save_model(self, filepath='Code/weights/best_ModelTraj_weights'):
+#         self.final_checkpoint.write(filepath)
+#
+#     def load_model(self, filepath='Code/weights/best_ModelTraj_weights'):
+#         self.final_checkpoint.restore(filepath)
