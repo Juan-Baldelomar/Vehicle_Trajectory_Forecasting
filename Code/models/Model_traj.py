@@ -420,7 +420,7 @@ class STTransformer(keras.Model):
 
         with tf.GradientTape() as tape:
             predictions = self((past, future, maps), True, stds)
-            loss = self.loss_function(future[0], predictions, neigh_out_masks)
+            loss = self.loss_function(future[0][:, :, :, :2], predictions, neigh_out_masks)
 
         print('loss: ', loss)
         gradients = tape.gradient(loss, self.trainable_variables)
