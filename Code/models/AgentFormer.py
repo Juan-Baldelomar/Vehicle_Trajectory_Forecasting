@@ -375,7 +375,7 @@ class STE_Transformer(keras.Model):
         return loss_
 
     # @tf.function
-    def train_step(self, past, future, maps, stds, losses, optimizer):
+    def train_step(self, past, future, maps, stds, optimizer):
         # remove np.newaxis to match MultiHeadAttention
         neigh_out_masks = tf.squeeze(future[2])
 
@@ -384,11 +384,10 @@ class STE_Transformer(keras.Model):
             loss = self.loss_function(future[0], predictions, neigh_out_masks)
 
         print('loss: ', loss)
-        losses.append(loss)
         gradients = tape.gradient(loss, self.trainable_variables)
         gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
         optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        return losses, loss
+        return loss
 
     def eval_step(self, past, future, maps, stds):
         preds = self((past, future, maps), False, stds)
