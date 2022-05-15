@@ -3,8 +3,10 @@ import numpy as np
 import tensorflow as tf
 #utils
 import datetime
+import time
 # own libraries
 from Code.models.Model_traj import STTransformer
+from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
 from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
 
@@ -56,11 +58,12 @@ def load_optimizer(weights_path, config_path, model, inputs, stds):
     conf = load_pkl_data(config_path)
     weights = load_pkl_data(weights_path)
     # load custom scheduler
-    conf['learning_rate'] = CustomSchedule.from_config(conf['learning_rate']['config'])
+    #conf['learning_rate'] = CustomSchedule.from_config(conf['learning_rate']['config'])
     # load optimizer conf and weights
+    conf['learning_rate'] = 0.0001
     optimizer = tf.keras.optimizers.Adam.from_config(conf)
     # perform train_step to init weights
-    model.train_step(*inputs, stds, [], optimizer)
+    model.train_step(*inputs, stds, optimizer)
     optimizer.set_weights(weights)
     return optimizer
 
@@ -111,9 +114,9 @@ def split_params(params):
 
 def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_path=None, opt_weights_path=None, opt_conf_path=None):
     # build model
-    model = STTransformer(**model_params)
+    model = STE_Transformer(**model_params)
     learning_rate = CustomSchedule(dk)
-    optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
+    optimizer = tf.keras.optimizers.Adam(0.00001, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
     # load model if desired
     if preload:
         # verify model_path is valid file
@@ -173,6 +176,7 @@ def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=N
     worst_loss = np.inf
     for epoch in range(epochs):
         print('epoch: ', epoch)
+        start = time.time()
         losses = []
         for (past, future, maps, _) in dataset:
             loss = model.train_step(past, future, maps, stds, optimizer)
@@ -189,7 +193,10 @@ def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=N
                 opt_weight_path=opt_weights_path,
                 opt_conf_path=opt_conf_path
             )
-        print("avg loss", avg_loss)
+        
+        end = time.time()
+        print('TIME ELAPSED:', datetime.timedelta(seconds = end - start))
+        print("avg loss", avg_loss, flush=True)
         # log resutls if desired
         if summary_writer is not None:
             with summary_writer.as_default():
