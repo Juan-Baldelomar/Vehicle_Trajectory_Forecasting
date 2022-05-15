@@ -169,7 +169,7 @@ def eval_model(model, dataset, stds):
     print('mean ade: ', np.mean(np.array(l_ade)))
 
 
-def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=None):
+def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=None, strategy=None):
     # loggin writer
     summary_writer = get_logger(logs_dir)
     # start training
@@ -179,7 +179,9 @@ def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=N
         start = time.time()
         losses = []
         for (past, future, maps, _) in dataset:
-            loss = model.train_step(past, future, maps, stds, optimizer)
+            #loss = model.train_step([past, future, maps, stds])
+            per_replica_losses = strategy.run(model.train_step, args=([past, future, maps, stds],))
+            loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
             losses.append(loss)
             if np.isnan(loss.numpy()):
                 break
@@ -188,14 +190,14 @@ def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=N
             worst_loss = avg_loss.numpy()
             save_state(
                 model,
-                optimizer,
+                model.optimizer,
                 model_path=model_path,
                 opt_weight_path=opt_weights_path,
                 opt_conf_path=opt_conf_path
             )
         
         end = time.time()
-        print('TIME ELAPSED:', datetime.timedelta(seconds = end - start))
+        print('TIME ELAPSED:', datetime.timedelta(seconds=end - start))
         print("avg loss", avg_loss, flush=True)
         # log resutls if desired
         if summary_writer is not None:
@@ -221,11 +223,14 @@ if __name__ == '__main__':
     dk = model_params['sp_dk']
     # get dataset
     data = load_pkl_data(data_params['data_path'])
-    dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'])
-    stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
-    # get model
-    model, optimizer = load_model_and_opt(model_params, dataset, stds, dk, **preload_params)
-    # train model
-    train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir)
+    strategy = tf.distribute.MirroredStrategy()
+    dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=strategy)
+    with strategy.scope():
+        stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
+        # get model
+        model, optimizer = load_model_and_opt(model_params, dataset, stds, dk, **preload_params)
+        model.set_optimizer(optimizer)
+        # train model
+        train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir)
 
 

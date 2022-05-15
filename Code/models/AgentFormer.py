@@ -320,8 +320,12 @@ class STE_Transformer(keras.Model):
         self.spatial_mlp = keras.models.Sequential([keras.layers.Dense(512, activation='relu'),
                                                     keras.layers.Dense(256)])
         # training
-        self.loss_object = tf.keras.losses.MeanSquaredError()
+        self.loss_object = tf.keras.losses.MeanSquaredError(reduction='sum')
         self.final_checkpoint = tf.train.Checkpoint(model=self)
+        self.optimizer = None
+
+    def set_optimizer(self, optimizer):
+        self.optimizer = optimizer
 
     def call(self, inputs, training, stds):
         """
@@ -372,11 +376,12 @@ class STE_Transformer(keras.Model):
         # neighbors_mask = neighbors_mask[:, :, :, np.newaxis]
         # pred_masked = pred * neighbors_mask
         pred_masked = pred
-        loss_ = self.loss_object(real, pred_masked)
+        loss_ = self.loss_object(real, pred_masked) * (1./(self.seq_size * self.neigh_size * 128))
         return loss_
 
     # @tf.function
-    def train_step(self, past, future, maps, stds, optimizer):
+    def train_step(self, inputs):
+        past, future, maps, stds = inputs
         # remove np.newaxis to match MultiHeadAttention
         neigh_out_masks = tf.squeeze(future[2])
 
@@ -387,7 +392,7 @@ class STE_Transformer(keras.Model):
         print('loss: ', loss)
         gradients = tape.gradient(loss, self.trainable_variables)
         gradients = [tf.clip_by_norm(g, 1.0) for g in gradients]
-        optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return loss
 
     def eval_step(self, past, future, maps, stds):

@@ -135,7 +135,12 @@ def get_npz_bitmaps(path, past_xy, masks, yaw):
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
-def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):
+def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.MirroredStrategy=None):
+    batch_size_per_replica = batch_size
+    if strategy is not None:
+        num_replicas = strategy.num_replicas_in_sync
+        batch_size_per_replica /= num_replicas
+
     # get ids dataset
     if inputs[0]['ego_id'] is not None:
         ids = [pre_path + input_['ego_id'] + '.npz' for input_ in inputs]
@@ -189,6 +194,9 @@ def buildDataset(inputs, batch_size, origin_vals=None, pre_path=None):
     # SHUFFLE AND BATCH
     dataset = dataset.shuffle(1000)
     drop_remainder = len(past) % batch_size == 1
-    dataset = dataset.batch(batch_size, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
+    dataset = dataset.batch(batch_size_per_replica, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
+
+    if strategy is not None:
+        dataset = strategy.experimental_distribute_dataset(dataset)
 
     return dataset, std_x, std_y
