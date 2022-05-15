@@ -68,12 +68,10 @@ def load_optimizer(weights_path, config_path, model, inputs, stds):
     return optimizer
 
 
-def split_params(params):
+def split_params(params, model_class):
     # validate all needed params are present
     if params is None:
         raise RuntimeError('[ERR] params is None. Parameters should be loaded from params file')
-    if params.get('features_size') is None or params.get('seq_size') is None or params.get('neigh_size') is None:
-        raise RuntimeError('[ERR] parameters file should contain basic model params (feat_size, seq_size, neigh_size)')
     if params.get('batch') is None or params.get('epochs') is None:
         raise RuntimeError('[ERR] parameters file should contain basic training params (batch, epochs)')
     if params.get('data_path') is None or params.get('maps_dir') is None:
@@ -82,21 +80,7 @@ def split_params(params):
     # get params values
     batch = params['batch']
     epochs = params['epochs']
-    model_params = {
-        'features_size': params['features_size'],
-        'seq_size': params['seq_size'],
-        'neigh_size': params['neigh_size'],
-        'sp_dk': params.get('sp_dk', 256),
-        'sp_enc_heads': params.get('sp_enc_heads', 4),
-        'sp_dec_heads': params.get('sp_dec_heads', 4),
-        'tm_dk': params.get('tm_dk', 256),
-        'tm_enc_heads': params.get('sp_enc_heads', 4),
-        'tm_dec_heads': params.get('sp_dec_heads', 4),
-        'sp_num_encoders': params.get('sp_num_encoders', 4),
-        'sp_num_decoders': params.get('sp_num_decoders', 4),
-        'tm_num_encoders': params.get('tm_num_encoders', 4),
-        'tm_num_decoders': params.get('tm_num_decoders', 4)
-    }
+    model_params = model_class.get_model_params(params)
     preload_params = {
         'preload': params.get('preload', False),
         'model_path': params.get('model_path'),
@@ -118,6 +102,8 @@ def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_pat
     learning_rate = CustomSchedule(dk)
     optimizer = tf.keras.optimizers.Adam(0.00001, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
     # load model if desired
+    init_epoch = 0
+    init_loss = np.inf
     if preload:
         # verify model_path is valid file
         if model_path is not None:
@@ -132,12 +118,15 @@ def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_pat
                 # loading optimizer was not possible, perform model.__call__ to init weights
                 model((past, future, maps), False, stds)
             # reload model weights
-            model.set_weights(load_pkl_data(model_path))
+            model_data = load_pkl_data(model_path)
+            init_loss = model_data.get('loss', np.inf)
+            init_epoch = model_data.get('epoch', 0)
+            model.set_weights(model_data['weights'])
 
-    return model, optimizer
+    return model, optimizer, init_loss, init_epoch
 
 
-def save_state(model, optimizer, model_path, opt_weight_path, opt_conf_path):
+def save_state(model, optimizer, loss, epoch, model_path, opt_weight_path, opt_conf_path):
     if model_path is None:
         model_path = 'Code/weights/best_ModelTraj_weights.pkl'
     if opt_weight_path is None:
@@ -145,7 +134,7 @@ def save_state(model, optimizer, model_path, opt_weight_path, opt_conf_path):
     if opt_conf_path is None:
         opt_conf_path = 'Code/config/best_opt_conf.pkl'
 
-    save_pkl_data(model.get_weights(), model_path)
+    save_pkl_data({'weights': model.get_weights(), 'loss': loss, 'epoch': epoch}, model_path)
     save_optimizer(optimizer, opt_weight_path, opt_conf_path)
 
 
@@ -169,12 +158,12 @@ def eval_model(model, dataset, stds):
     print('mean ade: ', np.mean(np.array(l_ade)))
 
 
-def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=None):
+def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir=None):
     # loggin writer
     summary_writer = get_logger(logs_dir)
     # start training
-    worst_loss = np.inf
-    for epoch in range(epochs):
+    best_loss = init_loss
+    for epoch in range(init_epoch, epochs):
         print('epoch: ', epoch)
         start = time.time()
         losses = []
@@ -184,18 +173,19 @@ def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=N
             if np.isnan(loss.numpy()):
                 break
         avg_loss = tf.reduce_mean(losses)
-        if avg_loss.numpy() < worst_loss:
-            worst_loss = avg_loss.numpy()
+        if avg_loss.numpy() < best_loss:
+            best_loss = avg_loss.numpy()
             save_state(
                 model,
                 optimizer,
+                best_loss,
                 model_path=model_path,
                 opt_weight_path=opt_weights_path,
                 opt_conf_path=opt_conf_path
             )
         
         end = time.time()
-        print('TIME ELAPSED:', datetime.timedelta(seconds = end - start))
+        print('TIME ELAPSED:', datetime.timedelta(seconds=end - start))
         print("avg loss", avg_loss, flush=True)
         # log resutls if desired
         if summary_writer is not None:
@@ -214,7 +204,7 @@ if __name__ == '__main__':
     params_path = sys.argv[1]
     # load parameters
     params = load_parameters(params_path)
-    model_params, batch, epochs, preload_params, data_params, logs_dir = split_params(params)
+    model_params, batch, epochs, preload_params, data_params, logs_dir = split_params(params, STE_Transformer)
     model_path = preload_params['model_path']
     opt_weights_path = preload_params['opt_weights_path']
     opt_conf_path = preload_params['opt_conf_path']
@@ -224,8 +214,8 @@ if __name__ == '__main__':
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'])
     stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
     # get model
-    model, optimizer = load_model_and_opt(model_params, dataset, stds, dk, **preload_params)
+    model, optimizer, init_loss, init_epoch = load_model_and_opt(model_params, dataset, stds, dk, **preload_params)
     # train model
-    train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir)
+    train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir)
 
 

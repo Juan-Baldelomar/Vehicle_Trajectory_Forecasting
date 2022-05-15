@@ -472,5 +472,26 @@ class STTransformer(keras.Model):
     def load_model(self, filepath='Code/weights/best_ModelTraj_weights'):
         self.final_checkpoint.restore(filepath)
 
+    def get_model_params(params):
+        if params.get('features_size') is None or params.get('seq_size') is None or params.get('neigh_size') is None:
+            raise RuntimeError(
+                '[ERR] parameters file should contain basic model params (feat_size, seq_size, neigh_size)')
+        model_params = {
+            'features_size': params['features_size'],
+            'seq_size': params['seq_size'],
+            'neigh_size': params['neigh_size'],
+            'sp_dk': params.get('sp_dk', 256),
+            'sp_enc_heads': params.get('sp_enc_heads', 4),
+            'sp_dec_heads': params.get('sp_dec_heads', 4),
+            'tm_dk': params.get('tm_dk', 256),
+            'tm_enc_heads': params.get('sp_enc_heads', 4),
+            'tm_dec_heads': params.get('sp_dec_heads', 4),
+            'sp_num_encoders': params.get('sp_num_encoders', 4),
+            'sp_num_decoders': params.get('sp_num_decoders', 4),
+            'tm_num_encoders': params.get('tm_num_encoders', 4),
+            'tm_num_decoders': params.get('tm_num_decoders', 4)
+        }
+        return model_params
+
 
 # model in which inputs of neihgbors and sequences will be in the same dimension
