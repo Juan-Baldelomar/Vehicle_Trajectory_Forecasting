@@ -123,7 +123,7 @@ def get_img(image_path):
 
     return raw_image
 
-
+#@tf.function
 def get_npz_bitmaps(path, past_xy, masks, yaw):
     img = np.load(path)
     bitmap = img['bitmaps']
@@ -135,12 +135,14 @@ def get_npz_bitmaps(path, past_xy, masks, yaw):
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
+#@tf.function
 def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.MirroredStrategy=None):
     batch_size_per_replica = batch_size
     if strategy is not None:
         num_replicas = strategy.num_replicas_in_sync
-        batch_size_per_replica /= num_replicas
-
+        print('[MSG] NUM OF REPLICAS:', num_replicas)
+        batch_size_per_replica //= num_replicas
+ 	
     # get ids dataset
     if inputs[0]['ego_id'] is not None:
         ids = [pre_path + input_['ego_id'] + '.npz' for input_ in inputs]
@@ -186,16 +188,17 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     bitmaps_ds = tf.data.Dataset.from_tensor_slices((ids, past, past_neigh_masks, yaws))
     bitmaps_ds = bitmaps_ds.map(lambda id_, past_xy, masks, yaw: tf.numpy_function(func=get_npz_bitmaps,
                                                                                    inp=[id_, past_xy, masks, yaw],
-                                                                                   Tout=tf.float32),
-                                num_parallel_calls=AUTOTUNE)
+                                                                                   Tout=tf.float32), num_parallel_calls=AUTOTUNE)
 
+    #bitmaps_ds = bitmaps_ds.map(lambda x: tf.reshape(x, [5, 256, 256, 3]))
     # BUILD FINAL DATASET
     dataset = tf.data.Dataset.zip((past_ds, future_ds, bitmaps_ds, target_ds))
+    #dataset = tf.data.Dataset.zip((past_ds, future_ds, target_ds))
     # SHUFFLE AND BATCH
     dataset = dataset.shuffle(1000)
-    drop_remainder = len(past) % batch_size == 1
+    drop_remainder = len(past) % batch_size_per_replica == 1
     dataset = dataset.batch(batch_size_per_replica, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
-
+    #print(dataset.element_spec[2])
     if strategy is not None:
         dataset = strategy.experimental_distribute_dataset(dataset)
 

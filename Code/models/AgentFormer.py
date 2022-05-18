@@ -12,12 +12,9 @@ from Code.eval.quantitative_eval import ADE
 import os
 import random
 from glob import glob
-import matplotlib.pyplot as plt
 import pathlib
 import time
 import datetime
-
-from IPython import display
 
 gpu_available = tf.config.list_physical_devices('GPU')
 print(gpu_available)
@@ -256,7 +253,7 @@ class Transformer(keras.Model):
                                num_encoders=num_encoders)
         self.decoder = Decoder(features_size, max_seq_size, dk, num_heads=dec_heads,
                                num_decoders=num_decoders)
-        self.linear = tf.keras.layers.Dense(10, name='Linear_Trans')
+        self.linear = tf.keras.layers.Dense(80, name='Linear_Trans')
 
     def call(self, inputs, training, use_look_mask=True):
         inp, inp_masks, targets, tar_masks = inputs
@@ -319,6 +316,7 @@ class STE_Transformer(keras.Model):
         #self.spatial_mlp = tf.keras.layers.Dense(512)
         self.spatial_mlp = keras.models.Sequential([keras.layers.Dense(512, activation='relu'),
                                                     keras.layers.Dense(256)])
+        self.offset = keras.layers.Dense(2)
         # training
         self.loss_object = tf.keras.losses.MeanSquaredError(reduction='sum')
         self.final_checkpoint = tf.train.Checkpoint(model=self)
@@ -327,6 +325,7 @@ class STE_Transformer(keras.Model):
     def set_optimizer(self, optimizer):
         self.optimizer = optimizer
 
+    @tf.function
     def call(self, inputs, training, stds):
         """
           speeds.shape = (batch, neighbors, seq, feats)
@@ -339,6 +338,7 @@ class STE_Transformer(keras.Model):
         squeezed_seq_mask = tf.squeeze(future_seq_masks)
         squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
         squeeze_past_neigh_mask = tf.squeeze(past_neigh_masks)
+        squeezed_future_mask = tf.squeeze(futu_speed_masks)
 
         proc_maps = self.semantic_map(maps)
         # multiply by ones to match all neighbors shape, except features dim
@@ -360,11 +360,13 @@ class STE_Transformer(keras.Model):
         output = self.time_transformer([embeddings, tf.squeeze(past_seq_masks)[:, tf.newaxis, tf.newaxis, :],
                                         future_embeddings, squeezed_seq_mask[:, tf.newaxis, tf.newaxis, :]], training)     # (batch, seq, features and neigh)
         # masking output
-        output = tf.reshape(output, [-1, self.seq_size, self.neigh_size, 2])                                               # (batch, seq, neigh, feat)
+        output = tf.reshape(output, [-1, self.seq_size, self.neigh_size, 16])                                               # (batch, seq, neigh, feat)
+        output = output[:, 1:, :, :] - output[:, :-1, :, :]
+        output = self.offset(output)
         output = output * stds
-        output = mask_output(output, squeezed_seq_mask, 'seq')
-        # output = tf.concat([future[:, 0, :, :][:, :, tf.newaxis, :], output], axis=2)
-        # output = tf.math.cumsum(output, axis=2)
+        output = mask_output(output, squeezed_future_mask, 'seq')
+        output = tf.concat([future[:, 0, :, :2][:, tf.newaxis, :, :], output], axis=1)
+        output = tf.math.cumsum(output, axis=1)
         # output = tf.transpose(output, [0, 2, 1, 3])                   # (batch, seq, neigh, [x,y])
         output = mask_output(output, squeezed_neigh_mask, 'neigh')
         # output = self.linear(output)
@@ -379,7 +381,7 @@ class STE_Transformer(keras.Model):
         loss_ = self.loss_object(real, pred_masked) * (1./(self.seq_size * self.neigh_size * 128))
         return loss_
 
-    # @tf.function
+    @tf.function
     def train_step(self, inputs):
         past, future, maps, stds = inputs
         # remove np.newaxis to match MultiHeadAttention
