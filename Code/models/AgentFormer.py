@@ -407,7 +407,7 @@ class STE_Transformer(keras.Model):
         targets = tf.reshape(targets, (-1, 26, 2))
         preds = tf.reshape(preds, (-1, 26, 2))
 
-        return ADE(targets.numpy(), preds.numpy())
+        return ADE(targets[:, :8, :].numpy(), preds[:, :8, :].numpy())
 
     def save_model(self, filepath='Code/weights/best_ModelTraj_weights'):
         self.final_checkpoint.write(filepath)

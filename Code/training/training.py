@@ -85,7 +85,8 @@ def split_params(params):
     # get params values
     batch = params['batch']
     epochs = params['epochs']
-    lr = params.get('lr', 0.00001) 
+    lr = params.get('lr', 0.00001)
+    
     model_params = {
         'features_size': params['features_size'],
         'seq_size': params['seq_size'],
@@ -181,10 +182,14 @@ def distributed_step(inputs, step_fn):
     
 
 def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=None, strategy=None):
+    # avoid creating summary writer
+    if epochs == 0:
+        return
+        
     # loggin writer
     summary_writer = get_logger(logs_dir)
     # start training
-    worst_loss = 209.8643
+    worst_loss = 21.08453
     for epoch in range(epochs):
         print('epoch: ', epoch)
         start = time.time()
@@ -215,9 +220,8 @@ def train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir=N
         if summary_writer is not None:
             with summary_writer.as_default():
                 tf.summary.scalar('loss', avg_loss, step=epoch)
-    # eval model
-    eval_model(model, dataset, stds)
-
+                
+                
 
 if __name__ == '__main__':
     import sys
@@ -239,6 +243,8 @@ if __name__ == '__main__':
     strategy = tf.distribute.MirroredStrategy()
     #strategy = None
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=strategy)
+    eval_dataset, _, _ = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=None)
+    
     with strategy.scope():
         stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
         # get model
@@ -246,5 +252,9 @@ if __name__ == '__main__':
         model.set_optimizer(optimizer)
         # train model
         train(model, epochs, model_path, opt_weights_path, opt_conf_path, logs_dir, strategy)
+    
+    # eval model
+    eval_model(model, eval_dataset, stds)
+
 
 
