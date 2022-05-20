@@ -5,6 +5,8 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from tensorflow.keras.layers import Dense, Conv2D, Conv2DTranspose
 from tensorflow.keras.layers import Flatten, Reshape, Dropout, BatchNormalization, Activation, LeakyReLU
+from Code.training.schedulers import CustomSchedule, HalveSchedule
+from Code.utils.save_utils import load_pkl_data, valid_file
 
 from Code.eval.quantitative_eval import ADE
 
@@ -12,12 +14,9 @@ from Code.eval.quantitative_eval import ADE
 import os
 import random
 from glob import glob
-import matplotlib.pyplot as plt
 import pathlib
 import time
 import datetime
-
-from IPython import display
 
 gpu_available = tf.config.list_physical_devices('GPU')
 print(gpu_available)
@@ -256,7 +255,7 @@ class Transformer(keras.Model):
                                num_encoders=num_encoders)
         self.decoder = Decoder(features_size, max_seq_size, dk, num_heads=dec_heads,
                                num_decoders=num_decoders)
-        self.linear = tf.keras.layers.Dense(10, name='Linear_Trans')
+        self.linear = tf.keras.layers.Dense(80, name='Linear_Trans')
 
     def call(self, inputs, training, use_look_mask=True):
         inp, inp_masks, targets, tar_masks = inputs
@@ -319,10 +318,16 @@ class STE_Transformer(keras.Model):
         #self.spatial_mlp = tf.keras.layers.Dense(512)
         self.spatial_mlp = keras.models.Sequential([keras.layers.Dense(512, activation='relu'),
                                                     keras.layers.Dense(256)])
+        self.offset = keras.layers.Dense(2)
         # training
-        self.loss_object = tf.keras.losses.MeanSquaredError()
+        self.loss_object = tf.keras.losses.MeanSquaredError(reduction='sum')
         self.final_checkpoint = tf.train.Checkpoint(model=self)
+        self.optimizer = None
 
+    def set_optimizer(self, optimizer):
+        self.optimizer = optimizer
+
+    @tf.function
     def call(self, inputs, training, stds):
         """
           speeds.shape = (batch, neighbors, seq, feats)
@@ -335,6 +340,7 @@ class STE_Transformer(keras.Model):
         squeezed_seq_mask = tf.squeeze(future_seq_masks)
         squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
         squeeze_past_neigh_mask = tf.squeeze(past_neigh_masks)
+        squeezed_future_mask = tf.squeeze(futu_speed_masks)
 
         proc_maps = self.semantic_map(maps)
         # multiply by ones to match all neighbors shape, except features dim
@@ -356,11 +362,13 @@ class STE_Transformer(keras.Model):
         output = self.time_transformer([embeddings, tf.squeeze(past_seq_masks)[:, tf.newaxis, tf.newaxis, :],
                                         future_embeddings, squeezed_seq_mask[:, tf.newaxis, tf.newaxis, :]], training)     # (batch, seq, features and neigh)
         # masking output
-        output = tf.reshape(output, [-1, self.seq_size, self.neigh_size, 2])                                               # (batch, seq, neigh, feat)
+        output = tf.reshape(output, [-1, self.seq_size, self.neigh_size, 16])                                               # (batch, seq, neigh, feat)
+        output = output[:, 1:, :, :] - output[:, :-1, :, :]
+        output = self.offset(output)
         output = output * stds
-        output = mask_output(output, squeezed_seq_mask, 'seq')
-        # output = tf.concat([future[:, 0, :, :][:, :, tf.newaxis, :], output], axis=2)
-        # output = tf.math.cumsum(output, axis=2)
+        output = mask_output(output, squeezed_future_mask, 'seq')
+        output = tf.concat([future[:, 0, :, :2][:, tf.newaxis, :, :], output], axis=1)
+        output = tf.math.cumsum(output, axis=1)
         # output = tf.transpose(output, [0, 2, 1, 3])                   # (batch, seq, neigh, [x,y])
         output = mask_output(output, squeezed_neigh_mask, 'neigh')
         # output = self.linear(output)
@@ -372,11 +380,12 @@ class STE_Transformer(keras.Model):
         # neighbors_mask = neighbors_mask[:, :, :, np.newaxis]
         # pred_masked = pred * neighbors_mask
         pred_masked = pred
-        loss_ = self.loss_object(real, pred_masked)
+        loss_ = self.loss_object(real, pred_masked) * (1./(self.seq_size * self.neigh_size * 128))
         return loss_
 
-    # @tf.function
-    def train_step(self, past, future, maps, stds, optimizer):
+    @tf.function
+    def train_step(self, inputs):
+        past, future, maps, stds = inputs
         # remove np.newaxis to match MultiHeadAttention
         neigh_out_masks = tf.squeeze(future[2])
 
@@ -387,7 +396,7 @@ class STE_Transformer(keras.Model):
         print('loss: ', loss)
         gradients = tape.gradient(loss, self.trainable_variables)
         gradients = [tf.clip_by_norm(g, 1.0) for g in gradients]
-        optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return loss
 
     def eval_step(self, past, future, maps, stds):
@@ -400,7 +409,7 @@ class STE_Transformer(keras.Model):
         targets = tf.reshape(targets, (-1, 26, 2))
         preds = tf.reshape(preds, (-1, 26, 2))
 
-        return ADE(targets.numpy(), preds.numpy())
+        return ADE(targets[:, :8, :].numpy(), preds[:, :8, :].numpy())
 
     def save_model(self, filepath='Code/weights/best_ModelTraj_weights'):
         self.final_checkpoint.write(filepath)
@@ -408,6 +417,7 @@ class STE_Transformer(keras.Model):
     def load_model(self, filepath='Code/weights/best_ModelTraj_weights'):
         self.final_checkpoint.restore(filepath)
 
+    @staticmethod
     def get_model_params(params):
         if params.get('features_size') is None or params.get('seq_size') is None or params.get('neigh_size') is None:
             raise RuntimeError(
@@ -428,3 +438,23 @@ class STE_Transformer(keras.Model):
             'tm_num_decoders': params.get('tm_num_decoders', 4)
         }
         return model_params
+
+    def get_optimizer(self, dk, config_path=None, params=None):
+        if params is None:
+            params = {}
+
+        lr = params.get('lr', 0.00001)
+        lr = CustomSchedule(dk) if lr is None else lr
+        b1 = params.get('beta_1', 0.99)
+        b2 = params.get('beta_2', 0.9)
+        epsilon = params.get('epsilon', 1e-9)
+
+        if config_path is not None:
+            valid_file(config_path)
+            conf = load_pkl_data(config_path)
+            if type(lr) is float:
+                # note that if lr is a valid float, it will overwrite the 'learning_rate' obtained from  conf file
+                conf['learning_rate'] = lr
+            self.optimizer = tf.keras.optimizers.Adam.from_config(conf)
+        else:
+            self.optimizer = tf.keras.optimizers.Adam(lr, beta_1=b1, beta_2=b2, epsilon=epsilon)

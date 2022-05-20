@@ -1,7 +1,7 @@
 # scientific libraries
 import numpy as np
 import tensorflow as tf
-#utils
+# utils
 import datetime
 import time
 # own libraries
@@ -9,63 +9,6 @@ from Code.models.Model_traj import STTransformer
 from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
 from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
-
-
-class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, d_model, warmup_steps=5):
-        super(CustomSchedule, self).__init__()
-
-        self.d_model = d_model
-        self.d_model = tf.cast(self.d_model, tf.float32)
-
-        self.warmup_steps = warmup_steps
-
-    def __call__(self, step):
-        arg1 = tf.math.rsqrt(step)
-        arg2 = step * (self.warmup_steps ** -1.5)
-
-        return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
-
-    def get_config(self):
-        return {'d_model': self.d_model, 'w_steps': self.warmup_steps}
-
-    def from_config(config, custom_object=None):
-        d_model = config['d_model']
-        warmup_steps = config['w_steps']
-        return CustomSchedule(d_model, warmup_steps)
-
-
-class HalveSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, lr, n_batches):
-        super(HalveSchedule, self).__init__()
-
-        self.lr = lr
-        self.n_batches = n_batches
-
-    def __call__(self, step):
-        if (step + 1) % (10 * 140) == 0:
-            self.lr = self.lr / 2
-
-        return self.lr
-
-
-def save_optimizer(optimizer, weights_path, config_path):
-    save_pkl_data(optimizer.get_weights(), weights_path, 4)
-    save_pkl_data(optimizer.get_config(), config_path, 4)
-
-
-def load_optimizer(weights_path, config_path, model, inputs, stds):
-    conf = load_pkl_data(config_path)
-    weights = load_pkl_data(weights_path)
-    # load custom scheduler
-    #conf['learning_rate'] = CustomSchedule.from_config(conf['learning_rate']['config'])
-    # load optimizer conf and weights
-    conf['learning_rate'] = 0.0001
-    optimizer = tf.keras.optimizers.Adam.from_config(conf)
-    # perform train_step to init weights
-    model.train_step(*inputs, stds, optimizer)
-    optimizer.set_weights(weights)
-    return optimizer
 
 
 def split_params(params, model_class):
@@ -77,10 +20,25 @@ def split_params(params, model_class):
     if params.get('data_path') is None or params.get('maps_dir') is None:
         raise RuntimeError('[ERR] parameters file should contain basic data params (data_path, maps_dir)')
 
-    # get params values
-    batch = params['batch']
-    epochs = params['epochs']
+    # get training params
+    training_params = {
+        'batch': params['batch'],
+        'epochs': params['epochs'],
+        'lr': params.get('lr', 0.00001)
+    }
+
+    # get model params (should be static method)
     model_params = model_class.get_model_params(params)
+
+    # get optimizer params
+    optim_params = {
+        'lr': params.get('lr', 1e-5),
+        'beta_1': params.get('beta_1', 0.99),
+        'beta_2': params.get('beta_2', 0.9),
+        'epsilon': params.get('epsilon', 1e-9)
+    }
+
+    # get preload weights params
     preload_params = {
         'preload': params.get('preload', False),
         'model_path': params.get('model_path'),
@@ -88,52 +46,73 @@ def split_params(params, model_class):
         'opt_conf_path': params.get('opt_conf_path')
     }
 
+    # get dataset params
     data_params = {
         'data_path': params['data_path'],
         'maps_dir': params['maps_dir']
     }
+
+    # logging path
     logs_dir = params.get('logs_dir')
-    return model_params, batch, epochs, preload_params, data_params, logs_dir
+    return model_params, optim_params, training_params, preload_params, data_params, logs_dir
 
 
-def load_model_and_opt(model_params, dataset, stds, dk, preload=False, model_path=None, opt_weights_path=None, opt_conf_path=None):
-    # build model
-    model = STE_Transformer(**model_params)
-    learning_rate = CustomSchedule(dk)
-    optimizer = tf.keras.optimizers.Adam(0.00001, beta_1=0.99, beta_2=0.9, epsilon=1e-9)
-    # load model if desired
-    init_epoch = 0
-    init_loss = np.inf
+def save_optimizer(optimizer, weights_path, config_path):
+    save_pkl_data(optimizer.get_weights(), weights_path, 4)
+    save_pkl_data(optimizer.get_config(), config_path, 4)
+
+
+def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_weights_path=None):
+    init_loss, init_epoch = np.inf, 0
     if preload:
-        # verify model_path is valid file
+        # load model weights
         if model_path is not None:
+            # verify model_path is valid file
             valid_file(model_path)
-            # data to call train_step to init weights
-            past, future, maps, _ = next(iter(dataset))
-            if opt_conf_path is not None and opt_weights_path is not None:
-                # load optimizer
-                valid_file(opt_conf_path, opt_weights_path)
-                optimizer = load_optimizer(opt_weights_path, opt_conf_path, model, (past, future, maps), stds)
-            else:
-                # loading optimizer was not possible, perform model.__call__ to init weights
-                model((past, future, maps), False, stds)
-            # reload model weights
+            # load model weights
             model_data = load_pkl_data(model_path)
             init_loss = model_data.get('loss', np.inf)
             init_epoch = model_data.get('epoch', 0)
             model.set_weights(model_data['weights'])
 
-    return model, optimizer, init_loss, init_epoch
+        # load optimizer weights
+        if opt_weights_path is not None:
+            # load optimizer
+            valid_file(opt_weights_path)
+            weights = load_pkl_data(opt_weights_path)
+            model.optimizer.set_weights(weights)
+
+    return init_loss, init_epoch
+
+
+def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimizer_params=None):
+    # get model and optimizer
+    past, future, maps, _ = next(iter(dataset))
+    model = STE_Transformer(**model_params)
+    model.get_optimizer(optimizer_params, dk, preload_params['opt_conf_path'])
+
+    # init weights of model and optimizer
+    strategy.run(model.train_step, args=([past, future, maps, stds],))
+
+    # preload weights
+    init_loss, init_epoch = load_model_and_opt(preload_params['preload'], model,
+                                               preload_params['model_path'], preload_params['opt_weights_path'])
+    return model, init_loss, init_epoch
 
 
 def save_state(model, optimizer, loss, epoch, model_path, opt_weight_path, opt_conf_path):
+    class_name = model.__class__.__name__
     if model_path is None:
-        model_path = 'Code/weights/best_ModelTraj_weights.pkl'
+        model_path = 'Code/weights/best_' + class_name + '_weights.pkl'
     if opt_weight_path is None:
-        opt_weight_path = 'Code/weights/best_opt_weight.pkl'
+        opt_weight_path = 'Code/weights/best_opt_' + class_name + 'weight.pkl'
     if opt_conf_path is None:
-        opt_conf_path = 'Code/config/best_opt_conf.pkl'
+        opt_conf_path = 'Code/config/best_opt_' + class_name + 'conf.pkl'
 
+    # validate if paths exist or create them
+    directories = list(map(os.path.dirname, [model_path, opt_weight_path, opt_conf_path]))
+    valid_path(*directories)
+    # store weights
     save_pkl_data({'weights': model.get_weights(), 'loss': loss, 'epoch': epoch}, model_path)
     save_optimizer(optimizer, opt_weight_path, opt_conf_path)
 
@@ -158,32 +137,46 @@ def eval_model(model, dataset, stds):
     print('mean ade: ', np.mean(np.array(l_ade)))
 
 
-def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir=None):
-    # loggin writer
+@tf.function
+def distributed_step(inputs, step_fn):
+    per_replica_losses = strategy.run(step_fn, args=(inputs,))
+    loss = strategy.reduce(tf.distribute.ReduceOp.SUM, per_replica_losses, axis=None)
+    return loss
+
+
+def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir=None, strategy=None):
+    # avoid creating summary writer
+    if epochs == 0:
+        return
+
+    # loggin writer and best loss
     summary_writer = get_logger(logs_dir)
+    best_loss = init_loss  # 21.08453
     # start training
-    best_loss = init_loss
-    for epoch in range(init_epoch, epochs):
+    for epoch in range(init_epoch, init_epoch + epochs):
         print('epoch: ', epoch)
-        start = time.time()
         losses = []
+        start = time.time()
         for (past, future, maps, _) in dataset:
-            loss = model.train_step(past, future, maps, stds, optimizer)
+            loss = distributed_step([past, future, maps, stds], model.train_step)
             losses.append(loss)
             if np.isnan(loss.numpy()):
                 break
+
+        # test if model loss is lower
         avg_loss = tf.reduce_mean(losses)
         if avg_loss.numpy() < best_loss:
             best_loss = avg_loss.numpy()
             save_state(
                 model,
-                optimizer,
+                model.optimizer,
                 best_loss,
+                epoch,
                 model_path=model_path,
                 opt_weight_path=opt_weights_path,
                 opt_conf_path=opt_conf_path
             )
-        
+
         end = time.time()
         print('TIME ELAPSED:', datetime.timedelta(seconds=end - start))
         print("avg loss", avg_loss, flush=True)
@@ -191,9 +184,7 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
         if summary_writer is not None:
             with summary_writer.as_default():
                 tf.summary.scalar('loss', avg_loss, step=epoch)
-    # eval model
-    eval_model(model, dataset, stds)
-
+                
 
 if __name__ == '__main__':
     import sys
@@ -202,20 +193,45 @@ if __name__ == '__main__':
     path = os.path.dirname(os.path.realpath(__file__))
     os.chdir(path + '/../..')
     params_path = sys.argv[1]
-    # load parameters
+
+    # LOAD PARAMETERS
     params = load_parameters(params_path)
-    model_params, batch, epochs, preload_params, data_params, logs_dir = split_params(params, STE_Transformer)
+    parameters = split_params(params, STE_Transformer)
+    model_params = parameters[0]
+    optim_params = parameters[1]
+    training_params = parameters[2]
+    preload_params = parameters[3]
+    data_params = parameters[4]
+    logs_dir = parameters[5]
+
+    # path to store weights
     model_path = preload_params['model_path']
     opt_weights_path = preload_params['opt_weights_path']
     opt_conf_path = preload_params['opt_conf_path']
+
+    # MODEL PARAMS
     dk = model_params['sp_dk']
-    # get dataset
+
+    # TRAINING PARAMS
+    epochs = training_params['epochs']
+    batch = training_params['batch']
+    lr = training_params['lr']
+
+    # GET DATASET
     data = load_pkl_data(data_params['data_path'])
-    dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'])
-    stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
-    # get model
-    model, optimizer, init_loss, init_epoch = load_model_and_opt(model_params, dataset, stds, dk, **preload_params)
-    # train model
-    train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir)
+    strategy = tf.distribute.MirroredStrategy()
+    dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=strategy)
+    eval_dataset, _, _ = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=None)
+    
+    with strategy.scope():
+        stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
+        # get model
+        model, init_loss, init_epoch = init_model_and_opt(model_params, dataset, stds, dk, preload_params, optim_params)
+        # train model
+        train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir, strategy)
+    
+    # eval model
+    eval_model(model, eval_dataset, stds)
+
 
 

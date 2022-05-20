@@ -11,12 +11,10 @@ from Code.eval.quantitative_eval import ADE
 import os
 import random
 from glob import glob
-import matplotlib.pyplot as plt
 import pathlib
 import time
 import datetime
 
-from IPython import display
 
 gpu_available = tf.config.list_physical_devices('GPU')
 print(gpu_available)
