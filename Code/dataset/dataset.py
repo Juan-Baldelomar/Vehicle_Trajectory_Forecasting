@@ -198,7 +198,6 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     dataset = dataset.shuffle(1000)
     drop_remainder = len(past) % batch_size_per_replica == 1
     dataset = dataset.batch(batch_size_per_replica, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
-    #print(dataset.element_spec[2])
     if strategy is not None:
         dataset = strategy.experimental_distribute_dataset(dataset)
 

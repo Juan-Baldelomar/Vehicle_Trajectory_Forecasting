@@ -380,7 +380,7 @@ class STE_Transformer(keras.Model):
         # neighbors_mask = neighbors_mask[:, :, :, np.newaxis]
         # pred_masked = pred * neighbors_mask
         pred_masked = pred
-        loss_ = self.loss_object(real, pred_masked) * (1./(self.seq_size * self.neigh_size * 128))
+        loss_ = self.loss_object(real, pred_masked) * (1./(self.seq_size * self.neigh_size * 256))
         return loss_
 
     @tf.function
