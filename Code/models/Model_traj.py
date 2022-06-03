@@ -361,7 +361,7 @@ class STTransformer(keras.Model):
         # neighbors, neighbors_mask, tar_neighbors, tar_neighbors_mask = inputs[1]
 
         past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks = inputs[0]
-        future, future_speed, futu_neigh_masks, futu_speed_masks = inputs[1]
+        future, future_speed, _, futu_neigh_masks, futu_speed_masks = inputs[1]
         maps = inputs[2]
 
         squeezed_speed_mask = tf.squeeze(futu_speed_masks)
@@ -388,7 +388,7 @@ class STTransformer(keras.Model):
         # masking output
         output = output * stds
         output = mask_output(output, squeezed_speed_mask, 'seq')
-        output = tf.concat([future[:, 0, :, :][:, :, tf.newaxis, :], output], axis=2)
+        output = tf.concat([future[:, 0, :, :2][:, :, tf.newaxis, :], output], axis=2)
         output = tf.math.cumsum(output, axis=2)
         output = tf.transpose(output, [0, 2, 1, 3])                   # (batch, seq, neigh, [x,y])
         output = mask_output(output, squeezed_neigh_mask, 'neigh')
@@ -486,7 +486,7 @@ class STTransformer(keras.Model):
         }
         return model_params
 
-    def get_optimizer(self, dk, config_path=None, params=None):
+    def get_optimizer(self, dk, preload, config_path=None, params=None):
         if params is None:
             params = {}
 
@@ -496,7 +496,7 @@ class STTransformer(keras.Model):
         b2 = params.get('beta_2', 0.9)
         epsilon = params.get('epsilon', 1e-9)
 
-        if config_path is not None:
+        if config_path is not None and preload:
             valid_file(config_path)
             conf = load_pkl_data(config_path)
             if type(lr) is float:

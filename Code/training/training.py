@@ -88,14 +88,15 @@ def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_wei
 def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimizer_params=None):
     # get model and optimizer
     past, future, maps, _ = next(iter(dataset))
-    model = STE_Transformer(**model_params)
-    model.get_optimizer(optimizer_params, dk, preload_params['opt_conf_path'])
+    preload = preload_params['preload']
+    model = STTransformer(**model_params)
+    model.get_optimizer(dk, preload, preload_params['opt_conf_path'], optimizer_params)
 
     # init weights of model and optimizer
     strategy.run(model.train_step, args=([past, future, maps, stds],))
 
     # preload weights
-    init_loss, init_epoch = load_model_and_opt(preload_params['preload'], model,
+    init_loss, init_epoch = load_model_and_opt(preload, model,
                                                preload_params['model_path'], preload_params['opt_weights_path'])
     return model, init_loss, init_epoch
 
@@ -196,7 +197,7 @@ if __name__ == '__main__':
 
     # LOAD PARAMETERS
     params = load_parameters(params_path)
-    parameters = split_params(params, STE_Transformer)
+    parameters = split_params(params, STTransformer)
     model_params = parameters[0]
     optim_params = parameters[1]
     training_params = parameters[2]

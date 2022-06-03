@@ -439,7 +439,7 @@ class STE_Transformer(keras.Model):
         }
         return model_params
 
-    def get_optimizer(self, dk, config_path=None, params=None):
+    def get_optimizer(self, dk, preload, config_path=None, params=None):
         if params is None:
             params = {}
 
@@ -449,7 +449,7 @@ class STE_Transformer(keras.Model):
         b2 = params.get('beta_2', 0.9)
         epsilon = params.get('epsilon', 1e-9)
 
-        if config_path is not None:
+        if config_path is not None and preload:
             valid_file(config_path)
             conf = load_pkl_data(config_path)
             if type(lr) is float:
