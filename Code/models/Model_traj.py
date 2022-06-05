@@ -424,7 +424,7 @@ class STTransformer(keras.Model):
         preds = self((past, future, maps), False, stds)
 
         # transpose sequence with neigh dimension
-        targets = tf.transpose(future[0], [0, 2, 1, 3])
+        targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
         preds = tf.transpose(preds, [0, 2, 1, 3])
         # reshape to remove batch
         targets = tf.reshape(targets, (-1, 26, 2))
@@ -502,6 +502,9 @@ class STTransformer(keras.Model):
             if type(lr) is float:
                 # note that if lr is a valid float, it will overwrite the 'learning_rate' obtained from  conf file
                 conf['learning_rate'] = lr
+            else:
+                conf['learning_rate'] = CustomSchedule.from_config(conf['learning_rate']['config'])
+                
             self.optimizer = tf.keras.optimizers.Adam.from_config(conf)
         else:
             self.optimizer = tf.keras.optimizers.Adam(lr, beta_1=b1, beta_2=b2, epsilon=epsilon)
