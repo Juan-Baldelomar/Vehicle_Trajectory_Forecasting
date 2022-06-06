@@ -22,7 +22,6 @@ def split_params(params, model_class):
 
     # get training params
     training_params = {
-        'batch': params['batch'],
         'epochs': params['epochs'],
         'lr': params.get('lr', 0.00001)
     }
@@ -45,6 +44,13 @@ def split_params(params, model_class):
         'opt_weights_path': params.get('opt_weights_path'),
         'opt_conf_path': params.get('opt_conf_path')
     }
+
+    # update preload_params with different save paths if present in conf file, if not use the same as preload paths.
+    preload_params.update({
+        'save_model_path': params.get('save_model_path', preload_params['model_path']),
+        'save_opt_weights_path': params.get('save_opt_weights_path', preload_params['opt_weights_path']),
+        'save_opt_conf_path': params.get('save_opt_conf_path', preload_params['opt_conf_path'])
+    })
 
     # get dataset params
     data_params = {
@@ -145,7 +151,7 @@ def distributed_step(inputs, step_fn):
     return loss
 
 
-def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir=None, strategy=None):
+def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir=None):
     # avoid creating summary writer
     if epochs == 0:
         return
@@ -206,16 +212,16 @@ if __name__ == '__main__':
     logs_dir = parameters[5]
 
     # path to store weights
-    model_path = preload_params['model_path']
-    opt_weights_path = preload_params['opt_weights_path']
-    opt_conf_path = preload_params['opt_conf_path']
+    model_path = preload_params['save_model_path']
+    opt_weights_path = preload_params['save_opt_weights_path']
+    opt_conf_path = preload_params['save_opt_conf_path']
 
     # MODEL PARAMS
     dk = model_params['sp_dk']
+    batch = model_params['batch']
 
     # TRAINING PARAMS
     epochs = training_params['epochs']
-    batch = training_params['batch']
     lr = training_params['lr']
 
     # GET DATASET
@@ -223,16 +229,13 @@ if __name__ == '__main__':
     strategy = tf.distribute.MirroredStrategy()
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=strategy)
     eval_dataset, _, _ = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=None)
-    
+
     with strategy.scope():
         stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
         # get model
         model, init_loss, init_epoch = init_model_and_opt(model_params, dataset, stds, dk, preload_params, optim_params)
         # train model
-        train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir, strategy)
-    
+        train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir)
+
     # eval model
     eval_model(model, eval_dataset, stds)
-
-
-

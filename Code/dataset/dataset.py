@@ -142,7 +142,7 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
         num_replicas = strategy.num_replicas_in_sync
         print('[MSG] NUM OF REPLICAS:', num_replicas)
         batch_size_per_replica //= num_replicas
- 	
+
     # get ids dataset
     if inputs[0]['ego_id'] is not None:
         ids = [pre_path + input_['ego_id'] + '.npz' for input_ in inputs]
@@ -197,7 +197,7 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     # SHUFFLE AND BATCH
     dataset = dataset.shuffle(1000)
     drop_remainder = len(past) % batch_size_per_replica == 1
-    dataset = dataset.batch(batch_size_per_replica, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
+    dataset = dataset.batch(batch_size, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
     if strategy is not None:
         dataset = strategy.experimental_distribute_dataset(dataset)
 

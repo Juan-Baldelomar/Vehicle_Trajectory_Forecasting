@@ -327,11 +327,12 @@ class STTransformer(keras.Model):
     def __init__(self, features_size, seq_size, neigh_size,
                  sp_dk=256, sp_enc_heads=8, sp_dec_heads=8, sp_num_encoders=6, sp_num_decoders=6,
                  tm_dk=256, tm_enc_heads=8, tm_dec_heads=8, tm_num_encoders=6, tm_num_decoders=6,
-                 dec_hidden_size=256, drop_rate=0.1):
+                 batch_size=1):
         super(STTransformer, self).__init__()
 
         self.seq_size = seq_size
         self.neigh_size = neigh_size
+        self.batch_size = batch_size
         # layers
         self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7],
                                                 strides=[2, 2, 2, 2])
@@ -401,7 +402,7 @@ class STTransformer(keras.Model):
         # neighbors_mask = neighbors_mask[:, :, :, np.newaxis]
         # pred_masked = pred * neighbors_mask
         pred_masked = pred
-        loss_ = self.loss_object(real, pred_masked) * (1. / (self.seq_size * self.neigh_size * 256))
+        loss_ = self.loss_object(real, pred_masked) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
         return loss_
 
     @tf.function
@@ -466,9 +467,10 @@ class STTransformer(keras.Model):
 
     @staticmethod
     def get_model_params(params):
-        if params.get('features_size') is None or params.get('seq_size') is None or params.get('neigh_size') is None:
+        if params.get('features_size') is None or params.get('seq_size') is None or \
+           params.get('neigh_size') is None or params.get('batch') is None:
             raise RuntimeError(
-                '[ERR] parameters file should contain basic model params (feat_size, seq_size, neigh_size)')
+                '[ERR] parameters file should contain basic model params (feat_size, seq_size, neigh_size, batch)')
         model_params = {
             'features_size': params['features_size'],
             'seq_size': params['seq_size'],
@@ -482,7 +484,8 @@ class STTransformer(keras.Model):
             'sp_num_encoders': params.get('sp_num_encoders', 4),
             'sp_num_decoders': params.get('sp_num_decoders', 4),
             'tm_num_encoders': params.get('tm_num_encoders', 4),
-            'tm_num_decoders': params.get('tm_num_decoders', 4)
+            'tm_num_decoders': params.get('tm_num_decoders', 4),
+            'batch': params['batch']
         }
         return model_params
 
