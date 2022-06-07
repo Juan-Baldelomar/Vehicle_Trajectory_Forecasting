@@ -327,12 +327,12 @@ class STTransformer(keras.Model):
     def __init__(self, features_size, seq_size, neigh_size,
                  sp_dk=256, sp_enc_heads=8, sp_dec_heads=8, sp_num_encoders=6, sp_num_decoders=6,
                  tm_dk=256, tm_enc_heads=8, tm_dec_heads=8, tm_num_encoders=6, tm_num_decoders=6,
-                 batch_size=1):
+                 batch=1):
         super(STTransformer, self).__init__()
 
         self.seq_size = seq_size
         self.neigh_size = neigh_size
-        self.batch_size = batch_size
+        self.batch_size = batch
         # layers
         self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7],
                                                 strides=[2, 2, 2, 2])
@@ -433,31 +433,25 @@ class STTransformer(keras.Model):
 
         return ADE(targets.numpy(), preds.numpy())
 
-    def inference(self, past, future, maps, stds):
-        output = tf.zeros(future[0].shape).numpy()
-        output[:, 0:2, :, :] = future[0][:, 0:2, :, :]
-        output = tf.constant(output)
-        future[0] = output
+    def inference(self, inputs, stds):
+        past = inputs[0]
+        maps = inputs[2]
+        target, _, _, neigh_masks, speed_masks = inputs[1]
+
+        tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size)
+        tar_sequence.write(0, target[:, 0, :, :])
+        tar_sequence.write(1, target[:, 1, :, :])
 
         for i in range(2, self.seq_size - 2):
+            future_seq = tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])          # transpose to get batch dimension first
+            future_speed = (future_seq[:, 1:, :, :] - future_seq[:, :-1, :, :])/stds
+            future = [future_seq, future_speed, None, neigh_masks, speed_masks]
+            # predict
             output = self((past, future, maps), False, stds)
-            # convert to numpy
-            output = output.numpy()
-            future_speed = future_speed.numpy()
+            # append new prediction
+            tar_sequence.write(i, output[:, i, :, :])
 
-            # prepate for next it
-            current_output = output[:, i, :, :]
-            output[:, i + 1, :, :] = current_output
-            future_speed[:, :, i - 1:i, :] = np.transpose(output[:, i:i + 1, :, :] - output[:, i - 1:i, :, :],
-                                                          [0, 2, 1, 3])
-
-            # rewrite for next it
-            output = tf.constant(output)
-            future_speed = tf.constant(future_speed)
-            #neigh_inputs[2] = output
-            #speed_inputs[2] = future_speed
-
-        return output
+        return tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])
 
     def save_model(self, filepath='Code/weights/best_ModelTraj_weights'):
         self.final_checkpoint.write(filepath)

@@ -300,13 +300,13 @@ class STE_Transformer(keras.Model):
     def __init__(self, features_size, seq_size, neigh_size,
                  sp_dk=256, sp_enc_heads=8, sp_dec_heads=8, sp_num_encoders=6, sp_num_decoders=6,
                  tm_dk=256, tm_enc_heads=8, tm_dec_heads=8, tm_num_encoders=6, tm_num_decoders=6,
-                 emb_size=64, batch_size=1):
+                 emb_size=64, batch=1):
         super(STE_Transformer, self).__init__()
 
         self.emb_size = emb_size
         self.seq_size = seq_size
         self.neigh_size = neigh_size
-        self.batch_size = batch_size
+        self.batch_size = batch
         # layers
         self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7],
                                                 strides=[2, 2, 2, 2])
