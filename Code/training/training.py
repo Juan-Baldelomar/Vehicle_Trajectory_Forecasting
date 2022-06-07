@@ -58,6 +58,12 @@ def split_params(params, model_class):
         'maps_dir': params['maps_dir']
     }
 
+    # get eval dataset params. If none then use the same as train dataset
+    data_params.update({
+        'eval_data_path': params.get('eval_data_path', data_params['data_path']),
+        'eval_maps_dir':  params.get('eval_maps_dir', data_params['maps_dir'])
+    })
+
     # logging path
     logs_dir = params.get('logs_dir')
     return model_params, optim_params, training_params, preload_params, data_params, logs_dir
@@ -224,11 +230,14 @@ if __name__ == '__main__':
     epochs = training_params['epochs']
     lr = training_params['lr']
 
-    # GET DATASET
+    # GET DATA
     data = load_pkl_data(data_params['data_path'])
+    eval_data = load_pkl_data(data_params['eval_data_path'])
+
+    # GET DATASETS
     strategy = tf.distribute.MirroredStrategy()
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=strategy)
-    eval_dataset, _, _ = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=None)
+    eval_dataset, _, _    = buildDataset(eval_data, batch, pre_path=data_params['eval_maps_dir'], strategy=None)
 
     with strategy.scope():
         stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
