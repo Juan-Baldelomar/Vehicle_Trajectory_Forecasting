@@ -422,7 +422,7 @@ class STTransformer(keras.Model):
         return loss
 
     def eval_step(self, past, future, maps, stds):
-        preds = self((past, future, maps), False, stds)
+        preds = self.inference((past, future, maps), stds)
 
         # transpose sequence with neigh dimension
         targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
