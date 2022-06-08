@@ -426,7 +426,7 @@ class STTransformer(keras.Model):
 
         # transpose sequence with neigh dimension
         targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
-        preds = tf.transpose(preds, [0, 2, 1, 3])
+        preds = tf.transpose(preds[:, :, :, :2], [0, 2, 1, 3])
         # reshape to remove batch
         targets = tf.reshape(targets, (-1, 26, 2))
         preds = tf.reshape(preds, (-1, 26, 2))
@@ -438,18 +438,21 @@ class STTransformer(keras.Model):
         maps = inputs[2]
         target, _, _, neigh_masks, speed_masks = inputs[1]
 
-        tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size)
-        tar_sequence.write(0, target[:, 0, :, :])
-        tar_sequence.write(1, target[:, 1, :, :])
+        tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size + 1)
+        tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
+        tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
+        degs = target[:, 0, :, 2:3]
 
-        for i in range(2, self.seq_size - 2):
+        for i in range(2, self.seq_size + 1):
             future_seq = tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])          # transpose to get batch dimension first
-            future_speed = (future_seq[:, 1:, :, :] - future_seq[:, :-1, :, :])/stds
+            future_speed = (future_seq[:, 1:, :, :2] - future_seq[:, :-1, :, :2])/stds
+            future_speed = tf.transpose(future_speed, [0, 2, 1, 3])
             future = [future_seq, future_speed, None, neigh_masks, speed_masks]
             # predict
             output = self((past, future, maps), False, stds)
             # append new prediction
-            tar_sequence.write(i, output[:, i, :, :])
+            output = tf.concat([output[:, i, :, :], degs], axis=-1)
+            tar_sequence = tar_sequence.write(i, output)
 
         return tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])
 
