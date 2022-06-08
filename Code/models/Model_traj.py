@@ -134,11 +134,11 @@ class EncoderLayer(keras.layers.Layer):
 
         # layers
         self.MH = MultiHeadAttention(dk, num_heads)
-        self.ffn = get_ffn(dk, hidden_layer_size)
+        #self.ffn = get_ffn(dk, hidden_layer_size)
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
-        self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
+        #self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
         self.dropout1 = keras.layers.Dropout(drop_rate)
-        self.dropout2 = keras.layers.Dropout(drop_rate)
+        #self.dropout2 = keras.layers.Dropout(drop_rate)
 
     def call(self, x, training, mask):
         if type(x) in (list, tuple):
@@ -152,11 +152,11 @@ class EncoderLayer(keras.layers.Layer):
         attn_output = self.dropout1(attn_output, training=training)
         z = self.normLayer1(x + attn_output)
         # normalization and feed forward layers
-        output = self.ffn(z)
-        output = self.dropout2(output, training=training)
-        output = self.normLayer2(z + output)
+        #output = self.ffn(z)
+        #output = self.dropout2(output, training=training)
+        #output = self.normLayer2(z + output)
 
-        return output
+        return z
 
 
 class DecoderLayer(keras.layers.Layer):
@@ -165,15 +165,15 @@ class DecoderLayer(keras.layers.Layer):
         # layers
         self.SAMH = MultiHeadAttention(dk, num_heads)
         self.EDMH = MultiHeadAttention(dk, num_heads)
-        self.ffn = get_ffn(dk, hidden_layer)
+        #self.ffn = get_ffn(dk, hidden_layer)
 
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
         self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
-        self.normLayer3 = keras.layers.LayerNormalization(epsilon=1e-6)\
+        #self.normLayer3 = keras.layers.LayerNormalization(epsilon=1e-6)\
 
         self.dropout1 = keras.layers.Dropout(drop_rate)
         self.dropout2 = keras.layers.Dropout(drop_rate)
-        self.dropout3 = keras.layers.Dropout(drop_rate)
+        #self.dropout3 = keras.layers.Dropout(drop_rate)
 
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
         # self attention computation
@@ -187,11 +187,11 @@ class DecoderLayer(keras.layers.Layer):
         z = self.normLayer2(z + enc_dec_out)
 
         # feed forward computation
-        output = self.ffn(z)
-        output = self.dropout3(output, training=training)
-        output = self.normLayer3(z + output)
+        #output = self.ffn(z)
+        #output = self.dropout3(output, training=training)
+        #output = self.normLayer3(z + output)
 
-        return output, self_attn, enc_dec_attn
+        return z, self_attn, enc_dec_attn
 
 
 class Encoder(keras.layers.Layer):
@@ -359,8 +359,6 @@ class STTransformer(keras.Model):
           speeds.shape = (batch, neighbors, seq, feats)
           stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
         """
-        # speeds, speeds_mask, tar_speeds, tar_speeds_masks            = inputs[0]
-        # neighbors, neighbors_mask, tar_neighbors, tar_neighbors_mask = inputs[1]
 
         past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks = inputs[0]
         future, future_speed, _, futu_neigh_masks, futu_speed_masks = inputs[1]
@@ -370,17 +368,12 @@ class STTransformer(keras.Model):
         squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
 
         past = self.feat_embedding(past)
-        #future_embeddings = self.feat_embedding(future)
         proc_maps = self.semantic_map(maps)
         # multiply by ones to match all neighbors shape, except features dim
         sp_desired_shape = past.shape[:-1] + proc_maps.shape[-1]
-        # -tm_desired_shape = speeds.shape[:-1] + proc_maps.shape[-1]
         sp_proc_maps = proc_maps[:, tf.newaxis, :, :] * tf.ones(sp_desired_shape)
-        # -tm_proc_maps = proc_maps[:, tf.newaxis, tf.newaxis, :] * tf.ones(tm_desired_shape)
-
+        # concat features embeddings and feature maps
         past = tf.concat((past, sp_proc_maps), axis=-1)
-        #future_enc_inp = tf.concat((future_embeddings, sp_proc_maps), axis=-1)
-        # speeds = tf.concat((speeds, tm_proc_maps), axis=-1)
 
         # spatial transformer
         output = self.spatial_transformer([past, past_neigh_masks, future, futu_neigh_masks], training,
@@ -424,6 +417,27 @@ class STTransformer(keras.Model):
         gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return loss
+
+    def iterative_train_step(self, inputs, stds):
+        past = inputs[0]
+        maps = inputs[2]
+        target, _, _, neigh_masks, speed_masks = inputs[1]
+
+        tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size + 1)
+        tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
+        tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
+        degs = target[:, 0, :, 2:3]
+
+        for i in range(2, self.seq_size + 1):
+            future_seq = tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])  # transpose to get batch dimension first
+            future_speed = (future_seq[:, 1:, :, :2] - future_seq[:, :-1, :, :2]) / stds
+            future_speed = tf.transpose(future_speed, [0, 2, 1, 3])
+            future = [future_seq, future_speed, None, neigh_masks, speed_masks]
+            # predict
+            output = self((past, future, maps), False, stds)
+            # append new prediction
+            output = tf.concat([output[:, i, :, :], degs], axis=-1)
+            tar_sequence = tar_sequence.write(i, output)
 
     def eval_step(self, past, future, maps, stds):
         preds = self.inference((past, future, maps), stds)
