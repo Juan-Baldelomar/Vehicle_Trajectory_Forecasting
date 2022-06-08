@@ -134,11 +134,11 @@ class EncoderLayer(keras.layers.Layer):
 
         # layers
         self.MH = MultiHeadAttention(dk, num_heads)
-        # self.ffn = get_ffn(dk, hidden_layer_size)
+        self.ffn = get_ffn(dk, hidden_layer_size)
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
-        # self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
+        self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
         self.dropout1 = keras.layers.Dropout(drop_rate)
-        # self.dropout2 = keras.layers.Dropout(drop_rate)
+        self.dropout2 = keras.layers.Dropout(drop_rate)
 
     def call(self, x, training, mask):
         if type(x) in (list, tuple):
@@ -152,11 +152,11 @@ class EncoderLayer(keras.layers.Layer):
         attn_output = self.dropout1(attn_output, training=training)
         z = self.normLayer1(x + attn_output)
         # normalization and feed forward layers
-        # output = self.ffn(z)
-        # output = self.dropout2(output, training=training)
-        # output = self.normLayer2(z + output)
+        output = self.ffn(z)
+        output = self.dropout2(output, training=training)
+        output = self.normLayer2(z + output)
 
-        return z
+        return output
 
 
 class DecoderLayer(keras.layers.Layer):
@@ -165,15 +165,15 @@ class DecoderLayer(keras.layers.Layer):
         # layers
         self.SAMH = MultiHeadAttention(dk, num_heads)
         self.EDMH = MultiHeadAttention(dk, num_heads)
-        # self.ffn = get_ffn(dk, hidden_layer)
+        self.ffn = get_ffn(dk, hidden_layer)
 
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
         self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
-        # self.normLayer3 = keras.layers.LayerNormalization(epsilon=1e-6)\
+        self.normLayer3 = keras.layers.LayerNormalization(epsilon=1e-6)\
 
         self.dropout1 = keras.layers.Dropout(drop_rate)
         self.dropout2 = keras.layers.Dropout(drop_rate)
-        # self.dropout3 = keras.layers.Dropout(drop_rate)
+        self.dropout3 = keras.layers.Dropout(drop_rate)
 
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
         # self attention computation
@@ -187,11 +187,11 @@ class DecoderLayer(keras.layers.Layer):
         z = self.normLayer2(z + enc_dec_out)
 
         # feed forward computation
-        # output = self.ffn(z)
-        # output = self.dropout3(output, training=training)
-        # output = self.normLayer3(z + output)
+        output = self.ffn(z)
+        output = self.dropout3(output, training=training)
+        output = self.normLayer3(z + output)
 
-        return z, self_attn, enc_dec_attn
+        return output, self_attn, enc_dec_attn
 
 
 class Encoder(keras.layers.Layer):
@@ -334,6 +334,7 @@ class STTransformer(keras.Model):
         self.neigh_size = neigh_size
         self.batch_size = batch
         # layers
+        self.feat_embedding = keras.layers.Dense(144)
         self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7],
                                                 strides=[2, 2, 2, 2])
         self.time_transformer = Transformer(features_size, seq_size, dk=tm_dk, enc_heads=tm_enc_heads,
@@ -368,6 +369,8 @@ class STTransformer(keras.Model):
         squeezed_speed_mask = tf.squeeze(futu_speed_masks)
         squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
 
+        past = self.feat_embedding(past)
+        #future_embeddings = self.feat_embedding(future)
         proc_maps = self.semantic_map(maps)
         # multiply by ones to match all neighbors shape, except features dim
         sp_desired_shape = past.shape[:-1] + proc_maps.shape[-1]
@@ -376,6 +379,7 @@ class STTransformer(keras.Model):
         # -tm_proc_maps = proc_maps[:, tf.newaxis, tf.newaxis, :] * tf.ones(tm_desired_shape)
 
         past = tf.concat((past, sp_proc_maps), axis=-1)
+        #future_enc_inp = tf.concat((future_embeddings, sp_proc_maps), axis=-1)
         # speeds = tf.concat((speeds, tm_proc_maps), axis=-1)
 
         # spatial transformer
