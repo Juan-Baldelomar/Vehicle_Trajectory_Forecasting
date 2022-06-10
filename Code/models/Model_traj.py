@@ -418,29 +418,20 @@ class STTransformer(keras.Model):
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return loss
 
-    def iterative_train_step(self, inputs, stds):
-        past = inputs[0]
-        maps = inputs[2]
-        target, _, _, neigh_masks, speed_masks = inputs[1]
-
-        tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size + 1)
-        tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
-        tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
-        degs = target[:, 0, :, 2:3]
-
-        for i in range(2, self.seq_size + 1):
-            future_seq = tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])  # transpose to get batch dimension first
-            future_speed = (future_seq[:, 1:, :, :2] - future_seq[:, :-1, :, :2]) / stds
-            future_speed = tf.transpose(future_speed, [0, 2, 1, 3])
-            future = [future_seq, future_speed, None, neigh_masks, speed_masks]
-            # predict
-            output = self((past, future, maps), False, stds)
-            # append new prediction
-            output = tf.concat([output[:, i, :, :], degs], axis=-1)
-            tar_sequence = tar_sequence.write(i, output)
+    @tf.function
+    def iterative_train_step(self, inputs):
+        past, future, maps, stds = inputs
+        with tf.GradientTape() as tape:
+            predictions = self.inference((past, future, maps), stds, True)
+            loss = self.loss_function(future[0][:, :, :, :2], predictions[:, :, :, :2], None)
+            gradients = tape.gradient(loss, self.trainable_variables)
+            gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
+            self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+            return loss
 
     def eval_step(self, past, future, maps, stds):
-        preds = self.inference((past, future, maps), stds)
+        preds = self.inference((past, future, maps), stds, False)
+        #preds = self((past, future, maps), False, stds)
 
         # transpose sequence with neigh dimension
         targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
@@ -451,7 +442,7 @@ class STTransformer(keras.Model):
 
         return ADE(targets.numpy(), preds.numpy())
 
-    def inference(self, inputs, stds):
+    def inference(self, inputs, stds, training):
         past = inputs[0]
         maps = inputs[2]
         target, _, _, neigh_masks, speed_masks = inputs[1]
@@ -459,7 +450,7 @@ class STTransformer(keras.Model):
         tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size + 1)
         tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
         tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
-        degs = target[:, 0, :, 2:3]
+        degs = target[:, :, :, 2:3]
 
         for i in range(2, self.seq_size + 1):
             future_seq = tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])          # transpose to get batch dimension first
@@ -467,9 +458,9 @@ class STTransformer(keras.Model):
             future_speed = tf.transpose(future_speed, [0, 2, 1, 3])
             future = [future_seq, future_speed, None, neigh_masks, speed_masks]
             # predict
-            output = self((past, future, maps), False, stds)
+            output = self((past, future, maps), training, stds)
             # append new prediction
-            output = tf.concat([output[:, i, :, :], degs], axis=-1)
+            output = tf.concat([output[:, i, :, :], degs[:, i, :, :]], axis=-1)
             tar_sequence = tar_sequence.write(i, output)
 
         return tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])
@@ -509,7 +500,7 @@ class STTransformer(keras.Model):
             params = {}
 
         lr = params.get('lr', 0.00001)
-        lr = CustomSchedule(dk) if lr is None else lr
+        lr = CustomSchedule(dk, 36000) if lr is None else lr
         b1 = params.get('beta_1', 0.99)
         b2 = params.get('beta_2', 0.9)
         epsilon = params.get('epsilon', 1e-9)

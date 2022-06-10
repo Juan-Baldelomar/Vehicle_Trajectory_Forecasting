@@ -171,7 +171,7 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
         losses = []
         start = time.time()
         for (past, future, maps, _) in dataset:
-            loss = distributed_step([past, future, maps, stds], model.train_step)
+            loss = distributed_step([past, future, maps, stds], model.iterative_train_step)
             losses.append(loss)
             if np.isnan(loss.numpy()):
                 break
