@@ -388,9 +388,8 @@ class STTransformer(keras.Model):
         #output = output * stds
         output = mask_output(output, squeezed_speed_mask, 'seq')
         output = tf.transpose(output, [0, 2, 1, 3])  # (batch, seq, neigh, [x,y])
-        output = mask_output(output, squeezed_neigh_mask, 'neigh')
-
         output = tf.concat([future[:, 0:1, :, :], output], axis=1)
+        output = mask_output(output, squeezed_neigh_mask, 'neigh')
         output = tf.math.cumsum(output, axis=1)
         return output
 
