@@ -1,0 +1,4 @@
+
+* Model_Traj
+   - speeds now contain also the diff for the angles
+   - stds normalization removed (dataset.py, Model_traj.py [model call and model inference])

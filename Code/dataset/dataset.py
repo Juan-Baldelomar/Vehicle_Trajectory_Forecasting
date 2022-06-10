@@ -171,12 +171,12 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     future_shifted = future[:, :, :, :2] - future[:, 0, :, :2][:, np.newaxis, :, :2]
 
     # past speeds normalized
-    past_speed = past[:, 1:, :, 0:2] - past[:, :-1, :, 0:2]
+    past_speed = past[:, 1:, :, 0:3] - past[:, :-1, :, 0:3]
     std_x, std_y = np.std(np.reshape(past_speed, (-1, 2)), axis=0)
-    past_speed = past_speed / np.array([[std_x, std_y]])
+    #past_speed = past_speed / np.array([[std_x, std_y]])
     # future speeds normalized (by past)
-    future_speed = future[:, 1:, :, 0:2] - future[:, :-1, :, 0:2]
-    future_speed = future_speed / np.array([[std_x, std_y]])
+    future_speed = future[:, 1:, :, 0:3] - future[:, :-1, :, 0:3]
+    #future_speed = future_speed / np.array([[std_x, std_y]])
     # transpose neigh and seq dims
     past_speed = np.transpose(past_speed, [0, 2, 1, 3])
     future_speed = np.transpose(future_speed, [0, 2, 1, 3])

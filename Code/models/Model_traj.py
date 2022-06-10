@@ -280,7 +280,7 @@ class Transformer(keras.Model):
         if use_decoder:
             self.decoder = Decoder(features_size, max_seq_size, dk, num_heads=dec_heads,
                                    num_decoders=num_decoders, use_pos_emb=use_pos_emb)
-            self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
+            self.linear = tf.keras.layers.Dense(3, name='Linear_Trans')
 
     def call(self, inputs, training, use_look_mask=True):
         inp, inp_masks, targets, tar_masks = inputs
@@ -383,14 +383,15 @@ class STTransformer(keras.Model):
         # time transformer
         time_input = [past_speed, output]
         output = self.time_transformer([time_input, past_speed_masks, future_speed, futu_speed_masks], training)
-        # masking output
-        output = output * stds
+
+        # masking output and transpose output
+        #output = output * stds
         output = mask_output(output, squeezed_speed_mask, 'seq')
-        output = tf.concat([future[:, 0, :, :2][:, :, tf.newaxis, :], output], axis=2)
-        output = tf.math.cumsum(output, axis=2)
-        output = tf.transpose(output, [0, 2, 1, 3])                   # (batch, seq, neigh, [x,y])
+        output = tf.transpose(output, [0, 2, 1, 3])  # (batch, seq, neigh, [x,y])
         output = mask_output(output, squeezed_neigh_mask, 'neigh')
-        # output = self.linear(output)
+
+        output = tf.concat([future[:, 0:1, :, :], output], axis=1)
+        output = tf.math.cumsum(output, axis=1)
         return output
 
     def loss_function(self, real, pred, neighbors_mask):
@@ -410,7 +411,7 @@ class STTransformer(keras.Model):
 
         with tf.GradientTape() as tape:
             predictions = self((past, future, maps), True, stds)
-            loss = self.loss_function(future[0][:, :, :, :2], predictions, neigh_out_masks)
+            loss = self.loss_function(future[0], predictions, neigh_out_masks)
 
         print('loss: ', loss)
         gradients = tape.gradient(loss, self.trainable_variables)
@@ -423,7 +424,7 @@ class STTransformer(keras.Model):
         past, future, maps, stds = inputs
         with tf.GradientTape() as tape:
             predictions = self.inference((past, future, maps), stds, True)
-            loss = self.loss_function(future[0][:, :, :, :2], predictions[:, :, :, :2], None)
+            loss = self.loss_function(future[0], predictions, None)
             gradients = tape.gradient(loss, self.trainable_variables)
             gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
             self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
@@ -450,18 +451,16 @@ class STTransformer(keras.Model):
         tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size + 1)
         tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
         tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
-        degs = target[:, :, :, 2:3]
 
         for i in range(2, self.seq_size + 1):
             future_seq = tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])          # transpose to get batch dimension first
-            future_speed = (future_seq[:, 1:, :, :2] - future_seq[:, :-1, :, :2])/stds
+            future_speed = (future_seq[:, 1:, :, :] - future_seq[:, :-1, :, :])
             future_speed = tf.transpose(future_speed, [0, 2, 1, 3])
             future = [future_seq, future_speed, None, neigh_masks, speed_masks]
             # predict
             output = self((past, future, maps), training, stds)
             # append new prediction
-            output = tf.concat([output[:, i, :, :], degs[:, i, :, :]], axis=-1)
-            tar_sequence = tar_sequence.write(i, output)
+            tar_sequence = tar_sequence.write(i, output[:, i, :, :])
 
         return tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])
 
