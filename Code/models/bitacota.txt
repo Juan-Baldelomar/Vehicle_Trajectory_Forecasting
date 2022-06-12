@@ -2,3 +2,11 @@
 * Model_Traj
    - speeds now contain also the diff for the angles
    - stds normalization removed (dataset.py, Model_traj.py [model call and model inference])
+
+
+
+
+# Fix
+
+- look_ahead_mask should combine future padding_mask too. Padding_mask used for the encoder-decoder
+  attention should be the past padding mask.

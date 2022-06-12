@@ -75,7 +75,7 @@ def save_optimizer(optimizer, weights_path, config_path):
 
 
 def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_weights_path=None):
-    init_loss, init_epoch = np.inf, 0
+    init_loss, init_epoch = np.inf, 1
     if preload:
         # load model weights
         if model_path is not None:
@@ -168,6 +168,10 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
     # start training
     for epoch in range(init_epoch, init_epoch + epochs):
         print('epoch: ', epoch)
+        if epoch % 5 == 0:
+            print(' ----------------------------- EVALUATING MODEL -----------------------------')
+            eval_model(model, eval_dataset, stds)
+
         losses = []
         start = time.time()
         for (past, future, maps, _) in dataset:

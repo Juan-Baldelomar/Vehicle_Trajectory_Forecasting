@@ -443,6 +443,7 @@ class STTransformer(keras.Model):
 
         return ADE(targets.numpy(), preds.numpy())
 
+    #@tf.function
     def inference(self, inputs, stds, training):
         past = inputs[0]
         maps = inputs[2]
