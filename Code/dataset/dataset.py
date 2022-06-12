@@ -191,7 +191,7 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     # get datasets
     past_ds = tf.data.Dataset.from_tensor_slices((past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks))
     future_ds = tf.data.Dataset.from_tensor_slices((future, future_speed, future_seq_masks, futu_neigh_masks, futu_speed_masks))
-    target_ds = tf.data.Dataset.from_tensor_slices((future_shifted, full_traj, yaws))
+    target_ds = tf.data.Dataset.from_tensor_slices((future_shifted, full_traj, yaws, ids))
     bitmaps_ds = tf.data.Dataset.from_tensor_slices((ids, past, past_neigh_masks, yaws))
     bitmaps_ds = bitmaps_ds.map(lambda id_, past_xy, masks, yaw: tf.numpy_function(func=get_npz_bitmaps,
                                                                                    inp=[id_, past_xy, masks, yaw],
@@ -203,7 +203,7 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     #dataset = tf.data.Dataset.zip((past_ds, future_ds, target_ds))
     # SHUFFLE AND BATCH
     if shuffle:
-    	dataset = dataset.shuffle(1000)
+        dataset = dataset.shuffle(1000)
     drop_remainder = len(past) % batch_size_per_replica == 1
     dataset = dataset.batch(batch_size, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
     if strategy is not None:

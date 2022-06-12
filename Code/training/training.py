@@ -1,6 +1,7 @@
 # scientific libraries
 import numpy as np
 import tensorflow as tf
+from matplotlib import pyplot
 # utils
 import datetime
 import time
@@ -9,6 +10,8 @@ from Code.models.Model_traj import STTransformer
 from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
 from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
+from Code.eval.quantitative_eval import ADE
+from Code.eval.qualitative_eval import stamp_traj
 
 
 def split_params(params, model_class):
@@ -141,12 +144,34 @@ def get_logger(logs_dir):
     return summary_writer
 
 
-def eval_model(model, dataset, stds):
+def eval_model(model, dataset, stds, perform_qualitative_eval=False):
     l_ade = []
-    for (past, future, maps, _) in dataset:
-        ade = model.eval_step(past, future, maps, stds)
+    for (past, future, maps, targets) in dataset:
+        preds = model.inference((past, future, maps), stds, False)
+        # swap neighbors and sequence dimension
+        all_targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
+        all_preds = tf.transpose(preds[:, :, :, :2], [0, 2, 1, 3])
+        # reshape to remove batch
+        all_targets = tf.reshape(all_targets, (-1, 26, 2))
+        all_preds = tf.reshape(all_preds, (-1, 26, 2))
+        ade = ADE(all_targets.numpy(), all_preds.numpy())
         l_ade.append(ade)
         print('ade: ', ade)
+
+        if np.random.rand() < 0.1 and perform_qualitative_eval:
+            n_element = np.random.choice(256)
+            bitmaps = maps[n_element]
+            map_id = targets[4][n_element]
+            mask_tar = future[3][n_element]
+            yaw = targets[2][n_element]
+            target_traj = future[0][n_element]
+            pred_traj = preds[n_element]
+            bitmaps = stamp_traj(target_traj, mask_tar, bitmaps, 256.0/200.0, yaw)
+            bitmaps = stamp_traj(pred_traj, mask_tar, bitmaps, 256.0/200.0, yaw)
+            for i, bitmap in enumerate(bitmaps):
+                name = 'qual_eval/pred_' + map_id[:-4] + '_' + str(i) + '.png'
+                pyplot.imsave(name, np.transpose(bitmap, [1, 2, 0]))
+
     print('mean ade: ', np.mean(np.array(l_ade)))
 
 
@@ -251,4 +276,4 @@ if __name__ == '__main__':
         train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir)
 
     # eval model
-    eval_model(model, eval_dataset, stds)
+    eval_model(model, eval_dataset, stds, perform_qualitative_eval=True)

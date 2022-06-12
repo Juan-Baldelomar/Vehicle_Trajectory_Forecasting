@@ -433,15 +433,7 @@ class STTransformer(keras.Model):
     def eval_step(self, past, future, maps, stds):
         preds = self.inference((past, future, maps), stds, False)
         #preds = self((past, future, maps), False, stds)
-
-        # transpose sequence with neigh dimension
-        targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
-        preds = tf.transpose(preds[:, :, :, :2], [0, 2, 1, 3])
-        # reshape to remove batch
-        targets = tf.reshape(targets, (-1, 26, 2))
-        preds = tf.reshape(preds, (-1, 26, 2))
-
-        return ADE(targets.numpy(), preds.numpy())
+        return preds
 
     #@tf.function
     def inference(self, inputs, stds, training):
