@@ -102,9 +102,14 @@ def adapt_spa_mask(mask):
                                                                    #  to broadcast when doing addition in the attention layer
 
 
-def adapt_seq_mask(mask):
-    return mask[np.newaxis, np.newaxis, np.newaxis, :].astype(np.float32)   # (1 (head), 1(neighbors), 1(seq), seq)
+#def adapt_seq_mask(mask):
+#    return mask[np.newaxis, np.newaxis, np.newaxis, :].astype(np.float32)   # (1 (head), 1(neighbors), 1(seq), seq)
 
+
+def adapt_seq_mask(mask):
+    seq_mask = np.transpose(mask)
+    return seq_mask[np.newaxis, :, np.newaxis, :].astype(np.float32)   # (1 (head), 1(neighbors), 1(seq), seq)
+    
 
 # normalize an image
 def normalize(img):
@@ -136,7 +141,7 @@ AUTOTUNE = tf.data.experimental.AUTOTUNE
 
 
 #@tf.function
-def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.MirroredStrategy=None):
+def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.MirroredStrategy=None, shuffle=True):
     batch_size_per_replica = batch_size
     if strategy is not None:
         num_replicas = strategy.num_replicas_in_sync
@@ -159,12 +164,14 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
 
     # get masks
     for input_ in inputs:
-        past_speed_masks.append(adapt_seq_mask(input_['past_seqMask'])[:, :, :, 1:])
-        futu_speed_masks.append(adapt_seq_mask(input_['future_seqMask'])[:, :, :, 1:])
+        past_s_mask = adapt_seq_mask(input_['past_neighMask'])
+        futu_s_mask = adapt_seq_mask(input_['future_neighMask'])
+        past_speed_masks.append(past_s_mask[:, :, :, 1:])
+        futu_speed_masks.append(futu_s_mask[:, :, :, 1:])
         past_neigh_masks.append(adapt_spa_mask(input_['past_neighMask']))
         futu_neigh_masks.append(adapt_spa_mask(input_['future_neighMask']))
-        past_seq_masks.append(adapt_seq_mask(input_['past_seqMask']))
-        future_seq_masks.append(adapt_seq_mask(input_['future_seqMask']))
+        past_seq_masks.append(past_s_mask)
+        future_seq_masks.append(futu_s_mask)
         yaws.append(float(input_['origin_yaw']))
 
     # get each agent trajectory origin as 0, 0
@@ -195,7 +202,8 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     dataset = tf.data.Dataset.zip((past_ds, future_ds, bitmaps_ds, target_ds))
     #dataset = tf.data.Dataset.zip((past_ds, future_ds, target_ds))
     # SHUFFLE AND BATCH
-    dataset = dataset.shuffle(1000)
+    if shuffle:
+    	dataset = dataset.shuffle(1000)
     drop_remainder = len(past) % batch_size_per_replica == 1
     dataset = dataset.batch(batch_size, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
     if strategy is not None:

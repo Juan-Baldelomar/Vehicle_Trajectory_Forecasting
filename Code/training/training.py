@@ -237,7 +237,7 @@ if __name__ == '__main__':
     # GET DATASETS
     strategy = tf.distribute.MirroredStrategy()
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=strategy)
-    eval_dataset, _, _    = buildDataset(eval_data, batch, pre_path=data_params['eval_maps_dir'], strategy=None)
+    eval_dataset, _, _    = buildDataset(eval_data, batch, pre_path=data_params['eval_maps_dir'], strategy=None, shuffle=False)
 
     with strategy.scope():
         stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)

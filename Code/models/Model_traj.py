@@ -51,7 +51,7 @@ def positional_encoding(max_position, d_model):
 
 def mask_output(output, masks, mode='seq'):
     if mode == 'seq':
-        mod_masks = (1-masks)[:, tf.newaxis, :, tf.newaxis]  # (batch, <copy to neighbors dim>, seq, <copy_mask to match feats dim>)
+        mod_masks = (1-masks)[:, :, :, tf.newaxis]  # (batch, <copy to neighbors dim>, seq, <copy_mask to match feats dim>)
     else:
         mod_masks = (1-masks)[:, :, :, tf.newaxis]           # (batch, seq, neighbors, <copy to feat dim>)
     return output * mod_masks
@@ -287,7 +287,8 @@ class Transformer(keras.Model):
         enc_out = self.encoder(inp, inp_masks, training)  # (batch, neighbors or sequence , attn dim , features)
         if self.use_decoder:
             look_mask = get_look_ahead_mask(targets) if use_look_mask else None
-            output = self.decoder(targets, enc_out, look_mask, tar_masks, training)
+            look_mask = tf.maximum(look_mask, tar_masks)
+            output = self.decoder(targets, enc_out, look_mask, inp_masks, training)
             output = self.linear(output)
         else:
             output = enc_out
