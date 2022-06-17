@@ -1,5 +1,5 @@
 import numpy as np
-from matplotlib import pyplot
+#from matplotlib import pyplot
 
 
 def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
@@ -15,10 +15,10 @@ def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
     :param: bottom     : if True, stamp pixels in blue layer (RGB), else in red layer
     """
     assert(step_start <= 0 and step_end >= 0)
+    bitmaps[:, 0, :, :]*= 0.5**2
     # needed shapes
     S, N, _ = inputs.shape
-    n_layers, H, W = bitmaps.shape
-    neigh_bitmaps = np.ones([N, n_layers, H, W]) * bitmaps[np.newaxis, :, :, :]
+    _, n_layers, H, W = bitmaps.shape
     # center pixels
     x_p, y_p = H / 2., W / 2.
     # get x, y for each observation, select the points that are not padded (masks==0) and get array flattened
@@ -37,14 +37,16 @@ def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
     N_pos = N_pos[masks == 0]
     # build positions layers
     stamped_positions = np.zeros((N, H, W))
+    value = 2 if bottom else 0
+    channel = np.full(len(N_pos), value) 
     # stamp values
     for i in range(step_start, step_end + 1):
         for j in range(step_start, step_end + 1):
-            stamped_positions[(N_pos, pix_y + i, pix_x + j)] = 255.0
+            bitmaps[(N_pos, channel, pix_y + i, pix_x + j)] = 255.0
     # append new layer
-    if bottom:
-        neigh_bitmaps = np.append(neigh_bitmaps, stamped_positions[:, np.newaxis, :, :], axis=1)
-    else:
-        neigh_bitmaps = np.append(stamped_positions[:, np.newaxis, :, :], neigh_bitmaps, axis=1)
-
-    return neigh_bitmaps
+    #if bottom:
+    #    bitmaps[:, 2, :, :] += stamped_positions
+    #else:
+    #    bitmaps[:, 0, :, :] += stamped_positions
+        
+    return bitmaps

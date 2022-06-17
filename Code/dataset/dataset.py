@@ -132,7 +132,7 @@ def get_img(image_path):
 def get_npz_bitmaps(path, past_xy, masks, yaw):
     img = np.load(path)
     bitmap = img['bitmaps']
-    bitmap = stamp_positions_in_bitmap(past_xy, np.squeeze(masks), bitmap, 256 / 200.0, yaw)
+    bitmap = stamp_positions_in_bitmap(past_xy, np.squeeze(masks), bitmap, 1.0, yaw)
     bitmap = np.transpose(bitmap, [0, 2, 3, 1])
     return bitmap.astype(np.float32)
 

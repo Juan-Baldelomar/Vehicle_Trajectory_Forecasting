@@ -125,7 +125,7 @@ def get_ffn(d_model, hidden_size, act_func='relu'):
     return keras.models.Sequential([
                                   keras.layers.Dense(hidden_size, activation=act_func),
                                   keras.layers.Dense(d_model)
-    ], name='SEQ')
+    ])
 
 
 class EncoderLayer(keras.layers.Layer):
@@ -348,10 +348,12 @@ class STTransformer(keras.Model):
                                                num_encoders=sp_num_encoders, num_decoders=sp_num_decoders,
                                                use_decoder=False)
         # self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
-
+        self.decoder = Decoder(features_size, neigh_size, sp_dk, num_heads=sp_dec_heads, num_decoders=sp_num_decoders, use_pos_emb=False)
+        self.linear = tf.keras.layers.Dense(3)
         # training
         self.loss_object = tf.keras.losses.MeanSquaredError(reduction='sum')
         self.final_checkpoint = tf.train.Checkpoint(model=self)
+        self.ownloss_weights = tf.constant([(1 + 0.01)**i for i in range(self.seq_size + 1)])[tf.newaxis, :, tf.newaxis, tf.newaxis]
         self.optimizer = None
 
     @tf.function
@@ -379,6 +381,7 @@ class STTransformer(keras.Model):
         # spatial transformer
         output = self.spatial_transformer([past, past_neigh_masks, future, futu_neigh_masks], training,
                                           use_look_mask=False)
+        sp_out = output
         output = output[:, 1:, :, :] - output[:, :-1, :, :]
         output = tf.transpose(output, [0, 2, 1, 3])
         # time transformer
@@ -387,11 +390,13 @@ class STTransformer(keras.Model):
 
         # masking output and transpose output
         #output = output * stds
-        output = mask_output(output, squeezed_speed_mask, 'seq')
+        #output = mask_output(output, squeezed_speed_mask, 'seq')
         output = tf.transpose(output, [0, 2, 1, 3])  # (batch, seq, neigh, [x,y])
         output = tf.concat([future[:, 0:1, :, :], output], axis=1)
-        output = mask_output(output, squeezed_neigh_mask, 'neigh')
+        #output = mask_output(output, squeezed_neigh_mask, 'neigh')
         output = tf.math.cumsum(output, axis=1)
+        output = self.decoder(output, sp_out, None, futu_neigh_masks, training)
+        output = self.linear(output)
         return output
 
     def loss_function(self, real, pred, neighbors_mask):
@@ -400,6 +405,7 @@ class STTransformer(keras.Model):
         # neighbors_mask = neighbors_mask[:, :, :, np.newaxis]
         # pred_masked = pred * neighbors_mask
         pred_masked = pred
+        #loss_ = (tf.reduce_sum(((real-pred)**2)*self.ownloss_weights)/3) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
         loss_ = self.loss_object(real, pred_masked) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
         return loss_
 
@@ -407,11 +413,12 @@ class STTransformer(keras.Model):
     def train_step(self, inputs):
         past, future, maps, stds = inputs
         # remove np.newaxis to match MultiHeadAttention
-        neigh_out_masks = tf.squeeze(future[2])
+        neigh_out_masks = tf.squeeze(future[3])
 
         with tf.GradientTape() as tape:
             predictions = self((past, future, maps), True, stds)
-            loss = self.loss_function(future[0], predictions, neigh_out_masks)
+            masked_predictions = mask_output(predictions, neigh_out_masks, 'neigh')
+            loss = self.loss_function(future[0], masked_predictions, neigh_out_masks) 
 
         print('loss: ', loss)
         gradients = tape.gradient(loss, self.trainable_variables)
@@ -422,20 +429,24 @@ class STTransformer(keras.Model):
     @tf.function
     def iterative_train_step(self, inputs):
         past, future, maps, stds = inputs
+        neigh_out_masks = tf.squeeze(future[3])
+        
         with tf.GradientTape() as tape:
             predictions = self.inference((past, future, maps), stds, True)
-            loss = self.loss_function(future[0], predictions, None)
-            gradients = tape.gradient(loss, self.trainable_variables)
-            gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
-            self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-            return loss
+            masked_predictions = mask_output(predictions, neigh_out_masks, 'neigh')
+            loss = self.loss_function(future[0], masked_predictions, None)
+            
+        gradients = tape.gradient(loss, self.trainable_variables)
+        gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        return loss
 
     def eval_step(self, past, future, maps, stds):
         preds = self.inference((past, future, maps), stds, False)
         #preds = self((past, future, maps), False, stds)
         return preds
 
-    #@tf.function
+    @tf.function
     def inference(self, inputs, stds, training):
         past = inputs[0]
         maps = inputs[2]
@@ -492,7 +503,7 @@ class STTransformer(keras.Model):
             params = {}
 
         lr = params.get('lr', 0.00001)
-        lr = CustomSchedule(dk, 36000) if lr is None else lr
+        lr = CustomSchedule(dk, 500) if lr is None else lr
         b1 = params.get('beta_1', 0.99)
         b2 = params.get('beta_2', 0.9)
         epsilon = params.get('epsilon', 1e-9)
