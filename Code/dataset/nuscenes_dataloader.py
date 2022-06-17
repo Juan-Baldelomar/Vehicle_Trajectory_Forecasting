@@ -138,7 +138,11 @@ class NuscenesLoader(Loader):
         :return: None
         """
         # list of the form <instance_token>_<sample_token>
-        mini_train: list = get_prediction_challenge_split(self.data_name, dataroot=self.DATAROOT)
+        train: list = get_prediction_challenge_split('train', dataroot=self.DATAROOT)
+        trainval: list = get_prediction_challenge_split('train_val', dataroot=self.DATAROOT)
+        val: list = get_prediction_challenge_split('val', dataroot=self.DATAROOT)
+
+        mini_train = train + trainval + val
         # split instance_token from sample_token
         inst_sampl_tokens = np.array([token.split("_") for token in mini_train])
         instance_tokens = set(inst_sampl_tokens[:, 0])

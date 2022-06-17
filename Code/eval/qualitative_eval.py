@@ -1,9 +1,10 @@
 import numpy as np
-from matplotlib import pyplot
+from matplotlib import pyplot as plt
+import glob
 
 
 def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
-                              pixbymeter: float, yaw, step_start=-1, step_end=1, bottom=True):
+               pixbymeter: float, yaw, step_start=-1, step_end=1, bottom=True):
     """
     :param: inputs    : np array of the form (S, N, F). S=sequence, N=Neighbors, F=Features (x=0, y=1).
     :param: masks     : np array of the form (S, N). S=sequence, N=Neighbors. Indicates thoses entries that are padded.
@@ -48,3 +49,24 @@ def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
         neigh_bitmaps = np.append(stamped_positions[:, np.newaxis, :, :], neigh_bitmaps, axis=1)
 
     return neigh_bitmaps
+
+
+def visualize(index):
+    files = glob.glob('../qual_eval/*')
+    if index == -1:
+        start = 0
+        end = len(files)
+    else:
+        start = index
+        end = index + 1
+
+    all_bitmaps = [(file, np.load(file)['bitmaps']) for file in files[start:end]]
+    for name, bitmaps in all_bitmaps:
+        for bitmap in bitmaps:
+            plt.imshow(np.transpose(-0.2 + bitmap, [1, 2, 0]))
+            plt.title(name)
+            plt.show()
+
+
+visualize(-1)
+

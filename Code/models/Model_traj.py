@@ -178,6 +178,7 @@ class DecoderLayer(keras.layers.Layer):
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
         # self attention computation
         self_attn_out, self_attn = self.SAMH(x, x, x, look_ahead_mask)
+        tf.print(self_attn[0])
         self_attn_out = self.dropout1(self_attn_out, training=training)
         z = self.normLayer1(x + self_attn_out)
 
@@ -260,11 +261,11 @@ class Decoder(keras.layers.Layer):
             x += self.positional_encoding
 
         x = self.dropout(x, training=training)
-
+        self_attn = []
         for decoder_layer in self.decoders_stack:
             x, attn1, attn2, = decoder_layer(x, enc_output, training, look_ahead_mask, padding_mask)
-
-        return x
+            self_attn.append(attn1)
+        return x, self_attn
 
 
 class Transformer(keras.Model):
@@ -288,8 +289,8 @@ class Transformer(keras.Model):
         if self.use_decoder:
             look_mask = get_look_ahead_mask(targets) if use_look_mask else None
             look_mask = tf.maximum(look_mask, tar_masks)
-            output = self.decoder(targets, enc_out, look_mask, inp_masks, training)
-            output = self.linear(output)
+            output, attn = self.decoder(targets, enc_out, look_mask, inp_masks, training)
+            output = self.linear(output), attn
         else:
             output = enc_out
         return output
@@ -312,14 +313,14 @@ class SemanticMapFeatures(keras.layers.Layer):
             w = (w - kernel_sizes[i]) // 2 + 1
             c = out_dims[i]
 
-    def call(self, inputs, **kwargs):
+    def call(self, inputs, neighs, **kwargs):
         output = inputs
         output = tf.reshape(output, [-1, 256, 256, 3])
         for layer in self.ConvLayers:
             output = layer(output)
 
         output = tf.keras.activations.tanh(output)
-        output = tf.reshape(output, [-1, self.neighbors, 12 * 12])
+        output = tf.reshape(output, [-1, neighs, 12 * 12])
         output = self.dense(output)
         return output
 
@@ -364,12 +365,12 @@ class STTransformer(keras.Model):
         past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks = inputs[0]
         future, future_speed, _, futu_neigh_masks, futu_speed_masks = inputs[1]
         maps = inputs[2]
-
+        _, _, neighs, _ = past.shape
         squeezed_speed_mask = tf.squeeze(futu_speed_masks)
         squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
 
         past = self.feat_embedding(past)
-        proc_maps = self.semantic_map(maps)
+        proc_maps = self.semantic_map(maps, neighs)
         # multiply by ones to match all neighbors shape, except features dim
         sp_desired_shape = past.shape[:-1] + proc_maps.shape[-1]
         sp_proc_maps = proc_maps[:, tf.newaxis, :, :] * tf.ones(sp_desired_shape)
@@ -383,7 +384,7 @@ class STTransformer(keras.Model):
         output = tf.transpose(output, [0, 2, 1, 3])
         # time transformer
         time_input = [past_speed, output]
-        output = self.time_transformer([time_input, past_speed_masks, future_speed, futu_speed_masks], training)
+        output, attn = self.time_transformer([time_input, past_speed_masks, future_speed, futu_speed_masks], training)
 
         # masking output and transpose output
         #output = output * stds
@@ -392,7 +393,7 @@ class STTransformer(keras.Model):
         output = tf.concat([future[:, 0:1, :, :], output], axis=1)
         output = mask_output(output, squeezed_neigh_mask, 'neigh')
         output = tf.math.cumsum(output, axis=1)
-        return output
+        return output, attn
 
     def loss_function(self, real, pred, neighbors_mask):
         # adapt mask and make mask shape match pred

@@ -207,7 +207,7 @@ class InputQuery:
     def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, use_ego_vehicles=True,
                                   bitmap_extractor: BitmapFeature = None, path='maps', **kwargs):
         # get indexes of the sequences
-        self.dataset.get_trajectories_indexes(use_ego_vehicles=use_ego_vehicles, L=inp_seq_l + tar_seq_l)
+        self.dataset.get_trajectories_indexes(use_ego_vehicles=use_ego_vehicles, L=inp_seq_l + tar_seq_l, overlap=tar_seq_l)
         # USEFUL VARIABLES
         ego_vehicles: dict = self.dataset.ego_vehicles if use_ego_vehicles else self.dataset.agents
         agents: dict = self.dataset.agents
@@ -241,6 +241,15 @@ class InputQuery:
 
         # return inputs
         return list_inputs
+
+    def rotate_input(self, inputs, yaw):
+        x = inputs[:, :, 0]
+        y = inputs[:, :, 1]
+        # perform rotation (clockwise)
+        inputs[:, :, 0] = x * np.cos(yaw) + y * np.sin(yaw)
+        inputs[:, :, 1] = -x * np.sin(yaw) + y * np.cos(yaw)
+        inputs[:, :, 2] += yaw
+        return inputs
 
     def get_single_Input(self, inp_seq_l, tar_seq_l, offset=-1):
         # get indexes of the sequences

@@ -81,7 +81,7 @@ class NuscenesBitmap(BitmapFeature):
                           'singapore-hollandvillage': (2700, 3000),
                           'boston-seaport': (3000, 2200)}
 
-    def getMasks(self, timestep: Egostep, map_name, height=200, width=200, canvas_size=(512, 512)):
+    def getMasks(self, timestep: Egostep, map_name, height=256., width=256., canvas_size=(256, 256)):
         """
         function to get the bitmaps of an agent's positions
         :param timestep   : angle of rotation of the masks
@@ -98,9 +98,10 @@ class NuscenesBitmap(BitmapFeature):
         x, y, yaw = timestep.x, timestep.y, timestep.rot * 180 / np.pi
         # build patch
         patch_box = (x, y, height, width)
-        patch_angle = 0  # Default orientation (yaw=0) where North is up
-        layer_names = ['drivable_area', 'lane']
-        map_mask = nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size)
+        patch_angle = yaw  # Default orientation (yaw=0) where North is up
+        layer_names = ['lane_divider', 'drivable_area']
+        map_mask = nusc_map.get_map_mask(patch_box, patch_angle, layer_names, canvas_size).astype('float32')
+        map_mask[1] = map_mask[1] * 0.5
         return map_mask
 
     def get_map(self, name, x_start, y_start, x_offset=100, y_offset=100, dpi=25.6):
