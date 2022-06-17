@@ -1,7 +1,7 @@
 # scientific libraries
 import numpy as np
 import tensorflow as tf
-from matplotlib import pyplot
+#from matplotlib import pyplot
 # utils
 import datetime
 import time
@@ -78,7 +78,7 @@ def save_optimizer(optimizer, weights_path, config_path):
 
 
 def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_weights_path=None):
-    init_loss, init_epoch = np.inf, 1
+    init_loss, init_epoch = np.inf, 0
     if preload:
         # load model weights
         if model_path is not None:
@@ -97,7 +97,7 @@ def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_wei
             weights = load_pkl_data(opt_weights_path)
             model.optimizer.set_weights(weights)
 
-    return init_loss, init_epoch
+    return init_loss, init_epoch + 1
 
 
 def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimizer_params=None):
@@ -146,7 +146,9 @@ def get_logger(logs_dir):
 
 def eval_model(model, dataset, stds, perform_qualitative_eval=False):
     l_ade = []
+    counter = 0
     for (past, future, maps, targets) in dataset:
+        batch_size = len(past)
         preds = model.inference((past, future, maps), stds, False)
         # swap neighbors and sequence dimension
         all_targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
@@ -158,19 +160,23 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
         l_ade.append(ade)
         print('ade: ', ade)
 
-        if np.random.rand() < 0.1 and perform_qualitative_eval:
-            n_element = np.random.choice(256)
-            bitmaps = maps[n_element]
-            map_id = targets[4][n_element]
-            mask_tar = future[3][n_element]
+        if np.random.rand() < 0.2 and perform_qualitative_eval:
+            n_element = np.random.choice(batch_size)
+            bitmaps = np.transpose(maps[n_element].numpy(), [0, 3, 1, 2])
+            map_id = targets[3][n_element].numpy().decode().split('/')[-1]
+            mask_tar = tf.squeeze(future[3][n_element]).numpy()
             yaw = targets[2][n_element]
-            target_traj = future[0][n_element]
-            pred_traj = preds[n_element]
-            bitmaps = stamp_traj(target_traj, mask_tar, bitmaps, 256.0/200.0, yaw)
-            bitmaps = stamp_traj(pred_traj, mask_tar, bitmaps, 256.0/200.0, yaw)
-            for i, bitmap in enumerate(bitmaps):
-                name = 'qual_eval/pred_' + map_id[:-4] + '_' + str(i) + '.png'
-                pyplot.imsave(name, np.transpose(bitmap, [1, 2, 0]))
+            target_traj = future[0][n_element].numpy()
+            pred_traj = preds[n_element].numpy()
+            bitmaps = stamp_traj(target_traj, mask_tar, bitmaps, 1.0, yaw)
+            bitmaps = stamp_traj(pred_traj, mask_tar, bitmaps, 1.0, yaw, bottom=False)
+            name = 'Code/qual_eval/' + map_id[:-4]
+            np.savez_compressed(name, bitmaps=bitmaps)
+            print('traj plot created:', name, flush=True)
+            counter += 1
+            #for i, bitmap in enumerate(bitmaps):
+            #    name = 'qual_eval/pred_' + map_id[:-4] + '_' + str(i) + '.png'
+            #    pyplot.imsave(name, np.transpose(bitmap, [1, 2, 0]))
 
     print('mean ade: ', np.mean(np.array(l_ade)))
 
@@ -193,14 +199,16 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
     # start training
     for epoch in range(init_epoch, init_epoch + epochs):
         print('epoch: ', epoch)
-        if epoch % 5 == 0:
+        if epoch % 4 == 0:
             print(' ----------------------------- EVALUATING MODEL -----------------------------')
             eval_model(model, eval_dataset, stds)
 
         losses = []
         start = time.time()
-        for (past, future, maps, _) in dataset:
+        for batch_index, (past, future, maps, _) in enumerate(dataset):
             loss = distributed_step([past, future, maps, stds], model.iterative_train_step)
+            if batch_index % 600 == 0:
+            	print(batch_index, '. batch loss: ', loss, flush=True)
             losses.append(loss)
             if np.isnan(loss.numpy()):
                 break
