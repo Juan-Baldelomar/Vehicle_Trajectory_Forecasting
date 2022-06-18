@@ -6,7 +6,8 @@ import tensorflow as tf
 import datetime
 import time
 # own libraries
-from Code.models.Model_traj import STTransformer
+#from Code.models.Model_traj import STTransformer
+from Code.models.RNN_Transformer import STTransformer
 from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
 from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
@@ -149,7 +150,7 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
     counter = 0
     for (past, future, maps, targets) in dataset:
         batch_size = len(past)
-        preds = model.inference((past, future, maps), stds, False)
+        preds = model.eval_step(past, future, maps)
         # swap neighbors and sequence dimension
         all_targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
         all_preds = tf.transpose(preds[:, :, :, :2], [0, 2, 1, 3])

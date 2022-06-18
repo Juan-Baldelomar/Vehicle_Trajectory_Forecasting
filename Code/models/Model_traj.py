@@ -312,7 +312,7 @@ class SemanticMapFeatures(keras.layers.Layer):
             w = (w - kernel_sizes[i]) // 2 + 1
             c = out_dims[i]
 
-    def call(self, inputs, neighs, **kwargs):
+    def call(self, inputs, neighs):
         output = inputs
         output = tf.reshape(output, [-1, 256, 256, 3])
         for layer in self.ConvLayers:
@@ -367,8 +367,6 @@ class STTransformer(keras.Model):
         future, future_speed, _, futu_neigh_masks, futu_speed_masks = inputs[1]
         maps = inputs[2]
         _, _, neighs, _ = past.shape
-        squeezed_speed_mask = tf.squeeze(futu_speed_masks)
-        squeezed_neigh_mask = tf.squeeze(futu_neigh_masks)
 
         past = self.feat_embedding(past)
         proc_maps = self.semantic_map(maps, neighs)
@@ -400,13 +398,8 @@ class STTransformer(keras.Model):
         return output
 
     def loss_function(self, real, pred, neighbors_mask):
-        # adapt mask and make mask shape match pred
-        # neighbors_mask = 1 - neighbors_mask
-        # neighbors_mask = neighbors_mask[:, :, :, np.newaxis]
-        # pred_masked = pred * neighbors_mask
-        pred_masked = pred
         #loss_ = (tf.reduce_sum(((real-pred)**2)*self.ownloss_weights)/3) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
-        loss_ = self.loss_object(real, pred_masked) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
+        loss_ = self.loss_object(real, pred) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
         return loss_
 
     @tf.function
@@ -441,9 +434,10 @@ class STTransformer(keras.Model):
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
         return loss
 
-    def eval_step(self, past, future, maps, stds):
-        preds = self.inference((past, future, maps), stds, False)
-        #preds = self((past, future, maps), False, stds)
+    def eval_step(self, past, future, maps):
+        squeezed_mask = tf.squeeze(future[3])
+        preds = self.inference((past, future, maps), None, False)
+        preds = mask_output(preds, squeezed_mask, 'neigh')
         return preds
 
     @tf.function
@@ -502,23 +496,36 @@ class STTransformer(keras.Model):
         if params is None:
             params = {}
 
+        # load lr parameter from parameters file, if no value found use fixed lr
         lr = params.get('lr', 0.00001)
-        lr = CustomSchedule(dk, 500) if lr is None else lr
-        b1 = params.get('beta_1', 0.99)
-        b2 = params.get('beta_2', 0.9)
-        epsilon = params.get('epsilon', 1e-9)
 
+        # if lr value found is int, use that value as the warm up steps.
+        if type(lr) is int:
+            lr = CustomSchedule(dk, lr)
+
+        #  if lr value is None, use default warmup steps
+        elif lr is None:
+            print('**************** [WARN]: using default value as warm up steps not desirable ************* ')
+            lr = CustomSchedule(dk)
+
+        # preload optimizer
         if config_path is not None and preload:
+            # validate files
             valid_file(config_path)
             conf = load_pkl_data(config_path)
             if type(lr) is float:
                 # note that if lr is a valid float, it will overwrite the 'learning_rate' obtained from  conf file
                 conf['learning_rate'] = lr
             else:
+                # use CustomSchedule loaded from the conf file
                 conf['learning_rate'] = CustomSchedule.from_config(conf['learning_rate']['config'])
-                
+
+            # set optimizer
             self.optimizer = tf.keras.optimizers.Adam.from_config(conf)
         else:
+            b1 = params.get('beta_1', 0.99)
+            b2 = params.get('beta_2', 0.9)
+            epsilon = params.get('epsilon', 1e-9)
             self.optimizer = tf.keras.optimizers.Adam(lr, beta_1=b1, beta_2=b2, epsilon=epsilon)
 
 
