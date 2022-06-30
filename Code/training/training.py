@@ -6,8 +6,8 @@ import tensorflow as tf
 import datetime
 import time
 # own libraries
-#from Code.models.Model_traj import STTransformer
-from Code.models.RNN_Transformer import STTransformer
+from Code.models.Model_traj import STTransformer
+#from Code.models.RNN_Transformer import STTransformer
 from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
 from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
@@ -109,7 +109,7 @@ def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimize
     model.get_optimizer(dk, preload, preload_params['opt_conf_path'], optimizer_params)
 
     # init weights of model and optimizer
-    strategy.run(model.train_step, args=([past, future, maps, stds],))
+    strategy.run(model.iterative_train_step, args=([past, future, maps, stds],))
 
     # preload weights
     init_loss, init_epoch = load_model_and_opt(preload, model,

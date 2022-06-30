@@ -1,5 +1,5 @@
 import numpy as np
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 import glob
 #from matplotlib import pyplot
 
@@ -48,7 +48,7 @@ def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
     return bitmaps
 
 
-def visualize(index):
+"""def visualize(index):
     files = glob.glob('../qual_eval/*')
     if index == -1:
         start = 0
@@ -65,4 +65,4 @@ def visualize(index):
             plt.show()
 
 
-#visualize(-1)
+#visualize(-1)"""

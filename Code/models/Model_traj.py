@@ -178,7 +178,6 @@ class DecoderLayer(keras.layers.Layer):
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
         # self attention computation
         self_attn_out, self_attn = self.SAMH(x, x, x, look_ahead_mask)
-        tf.print(self_attn[0])
         self_attn_out = self.dropout1(self_attn_out, training=training)
         z = self.normLayer1(x + self_attn_out)
 
@@ -280,7 +279,7 @@ class Transformer(keras.Model):
         if use_decoder:
             self.decoder = Decoder(features_size, max_seq_size, dk, num_heads=dec_heads,
                                    num_decoders=num_decoders, use_pos_emb=use_pos_emb)
-            self.linear = tf.keras.layers.Dense(3, name='Linear_Trans')
+            #self.linear = tf.keras.layers.Dense(3, name='Linear_Trans')
 
     def call(self, inputs, training, use_look_mask=True):
         inp, inp_masks, targets, tar_masks = inputs
@@ -288,8 +287,8 @@ class Transformer(keras.Model):
         if self.use_decoder:
             look_mask = get_look_ahead_mask(targets) if use_look_mask else None
             look_mask = tf.maximum(look_mask, tar_masks)
-            output, attn = self.decoder(targets, enc_out, look_mask, inp_masks, training)
-            output = self.linear(output), attn
+            output = self.decoder(targets, enc_out, look_mask, inp_masks, training)
+            #output = self.linear(output)
         else:
             output = enc_out
         return output
@@ -348,7 +347,7 @@ class STTransformer(keras.Model):
                                                num_encoders=sp_num_encoders, num_decoders=sp_num_decoders,
                                                use_decoder=False)
         # self.linear = tf.keras.layers.Dense(2, name='Linear_Trans')
-        self.decoder = Decoder(features_size, neigh_size, sp_dk, num_heads=sp_dec_heads, num_decoders=sp_num_decoders, use_pos_emb=False)
+        #self.decoder = Decoder(features_size, neigh_size, sp_dk, num_heads=sp_dec_heads, num_decoders=sp_num_decoders, use_pos_emb=False)
         self.linear = tf.keras.layers.Dense(3)
         # training
         self.loss_object = tf.keras.losses.MeanSquaredError(reduction='sum')
@@ -381,20 +380,28 @@ class STTransformer(keras.Model):
                                           use_look_mask=False)
         sp_out = output
         output = output[:, 1:, :, :] - output[:, :-1, :, :]
+        #sp_out = output
         output = tf.transpose(output, [0, 2, 1, 3])
         # time transformer
         time_input = [past_speed, output]
-        output, attn = self.time_transformer([time_input, past_speed_masks, future_speed, futu_speed_masks], training)
+        output = self.time_transformer([time_input, past_speed_masks, future_speed, futu_speed_masks], training)
 
         # masking output and transpose output
         #output = output * stds
         #output = mask_output(output, squeezed_speed_mask, 'seq')
         output = tf.transpose(output, [0, 2, 1, 3])  # (batch, seq, neigh, [x,y])
+        
+        # EXPERIMENTAL
+        output = tf.concat([output, sp_proc_maps[:, :25, :, :]], axis=-1)
+        #output = tf.concat([output, sp_out], axis=-1)
+        output = self.linear(output)
+        # END EXPERIMENTAL
+        
         output = tf.concat([future[:, 0:1, :, :], output], axis=1)
         #output = mask_output(output, squeezed_neigh_mask, 'neigh')
         output = tf.math.cumsum(output, axis=1)
-        output = self.decoder(output, sp_out, None, futu_neigh_masks, training)
-        output = self.linear(output)
+        #output = self.decoder(output, sp_out, None, futu_neigh_masks, training)
+        #output = self.linear(output)
         return output
 
     def loss_function(self, real, pred, neighbors_mask):

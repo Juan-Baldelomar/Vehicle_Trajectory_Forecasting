@@ -20,6 +20,9 @@ import datetime
 gpu_available = tf.config.list_physical_devices('GPU')
 print(gpu_available)
 
+#for device in gpu_available:
+#    tf.config.experimental.set_memory_growth(device, True)
+
 
 def get_look_ahead_mask(input_data):
     input_shape = list(input_data.shape)[:-1]
@@ -140,6 +143,7 @@ class EncoderLayer(keras.layers.Layer):
         self.dropout1 = keras.layers.Dropout(drop_rate)
         # self.dropout2 = keras.layers.Dropout(drop_rate)
 
+    @tf.function
     def call(self, x, training, mask):
         if type(x) in (list, tuple):
             k = x[1]
@@ -174,11 +178,11 @@ class DecoderLayer(keras.layers.Layer):
         self.dropout1 = keras.layers.Dropout(drop_rate)
         self.dropout2 = keras.layers.Dropout(drop_rate)
         # self.dropout3 = keras.layers.Dropout(drop_rate)
-
+    
+    @tf.function
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
         # self attention computation
         self_attn_out, self_attn = self.SAMH(x, x, x, look_ahead_mask)
-        tf.print(self_attn[0])
         self_attn_out = self.dropout1(self_attn_out, training=training)
         z = self.normLayer1(x + self_attn_out)
 
@@ -214,6 +218,7 @@ class Encoder(keras.layers.Layer):
                                range(num_encoders)]
         self.dropout = tf.keras.layers.Dropout(drop_rate)
 
+    @tf.function
     def call(self, x, padding_mask, training):
         k = None
         if type(x) in (list, tuple):
@@ -254,6 +259,7 @@ class Decoder(keras.layers.Layer):
                                range(num_decoders)]
         self.dropout = tf.keras.layers.Dropout(drop_rate)
 
+    @tf.function
     def call(self, x, enc_output, look_ahead_mask, padding_mask, training):
         x = self.embedding(x)
         x *= tf.math.sqrt(tf.cast(self.dk_model, tf.float32))
@@ -282,14 +288,15 @@ class Transformer(keras.Model):
                                    num_decoders=num_decoders, use_pos_emb=use_pos_emb)
             self.linear = tf.keras.layers.Dense(3, name='Linear_Trans')
 
+    @tf.function
     def call(self, inputs, training, use_look_mask=True):
         inp, inp_masks, targets, tar_masks = inputs
         enc_out = self.encoder(inp, inp_masks, training)  # (batch, neighbors or sequence , attn dim , features)
         if self.use_decoder:
             look_mask = get_look_ahead_mask(targets) if use_look_mask else None
             look_mask = tf.maximum(look_mask, tar_masks)
-            output, attn = self.decoder(targets, enc_out, look_mask, inp_masks, training)
-            output = self.linear(output), attn
+            output = self.decoder(targets, enc_out, look_mask, inp_masks, training)
+            output = self.linear(output)
         else:
             output = enc_out
         return output
@@ -312,6 +319,7 @@ class SemanticMapFeatures(keras.layers.Layer):
             w = (w - kernel_sizes[i]) // 2 + 1
             c = out_dims[i]
 
+    @tf.function
     def call(self, inputs, neighs, **kwargs):
         output = inputs
         output = tf.reshape(output, [-1, 256, 256, 3])
@@ -329,10 +337,11 @@ class AttentionModule(keras.layers.Layer):
         super(AttentionModule, self).__init__()
         self.query_vector = keras.layers.Dense(1)
 
+    @tf.function
     def call(self, inputs):
         h = inputs[0]
         masks = inputs[1]
-
+        
         scores = self.query_vector(h)
         scores = tf.squeeze(scores)
         scores += masks * -1e9
@@ -345,23 +354,35 @@ class AttentionModule(keras.layers.Layer):
 class RNNEncoder(keras.layers.Layer):
     def __init__(self):
         super(RNNEncoder, self).__init__()
-        self.lstm = keras.layers.LSTM(512, return_sequences=True, return_state=True)
+        #self.lstm = keras.layers.GRU(512, return_sequences=True, return_state=False)
+        self.embeddings = tf.keras.layers.Dense(512)
+        self.lstm_cell = keras.layers.GRUCell(512)
 
-    def call(self, inputs):
-        c, h, _ = self.lstm(inputs)
-        return c
+    @tf.function
+    def call(self, inputs, training):
+        states = tf.TensorArray(dtype='float32', size=26)
+        c = self.embeddings(inputs)
+        state = tf.zeros_like(c[:, 0, :])
+        for i in range(26):
+               out, state = self.lstm_cell(c[:, i, :], state, training)
+               states = states.write(i, out)
+               
+        #c = self.lstm(inputs, training=True)
+        return tf.transpose(states.stack(), [1, 0, 2])
 
 
 class RNNDecoder(keras.layers.Layer):
-    def __init__(self):
+    def __init__(self, neigh_size):
         super(RNNDecoder, self).__init__()
-        self.lstm = keras.layers.LSTM(512, return_sequences=False, return_state=True)
+        #self.lstm = keras.layers.LSTM(64, return_sequences=False, return_state=True)
+        self.lstm_cell = keras.layers.GRUCell(512)
         self.attention = AttentionModule()
         self.linear = keras.layers.Dense(15)
         self.embedding = keras.layers.Dense(256)
+        self.neigh_size = neigh_size
 
     @tf.function
-    def call(self, inputs, seq_size):
+    def call(self, inputs, seq_size, training):
         hidden_states = inputs[0]
         masks = inputs[1]
         init_point = inputs[2]
@@ -369,31 +390,46 @@ class RNNDecoder(keras.layers.Layer):
 
         batch_size, past_length = hidden_states.shape[:2]
 
-        tar_sequence = tf.TensorArray(dtype=tf.float32, size=seq_size)
-        future_seq = tf.TensorArray(dtype=tf.float32, size=seq_size + 1)
+        #tar_sequence = tf.TensorArray(dtype=tf.float32, size=seq_size - 1)
+        future_seq = tf.TensorArray(dtype=tf.float32, size=seq_size)
         future_seq = future_seq.write(0, init_point)
 
-        tar_hidden_states = tf.TensorArray(dtype=tf.float32, size=0, dynamic_size=True)
-        tar_masks = tf.concat((masks, tf.zeros((1, seq_size))), axis=1)
-
+        #tar_hidden_states = tf.TensorArray(dtype=tf.float32, size=0, dynamic_size=True)
+        tar_hidden_states = tf.TensorArray(dtype=tf.float32, size=past_length + seq_size - 1)
+        tar_masks = tf.concat((masks[:, 0, :], tf.ones((1, seq_size - 1))), axis=-1)
+        
         for i in range(past_length):
             tar_hidden_states = tar_hidden_states.write(i, hidden_states[:, i, :])
-
-        for i in range(seq_size):
+            
+        
+        #for i in range(seq_size - 1):
+        #    inp = self.embedding(out)
+        #    tar_sequence = tar_sequence.write(i, inp)
+        #    sequence = tf.transpose(tar_sequence.stack(), [1, 0, 2])
+        #    lstm_out, h, _ = self.lstm(sequence)
+        #    c = tf.transpose(tar_hidden_states.stack(), [1, 0, 2])[:, :past_length + i, : ]
+        #    curr_masks = tar_masks[:, :past_length + i]
+        #    attn, _ = self.attention([c, curr_masks])
+        #    attn = tf.squeeze(attn)
+        #    out = tf.concat([lstm_out, attn], axis=-1)
+        #    out = self.linear(out)
+        #    tar_hidden_states = tar_hidden_states.write(past_length + i, lstm_out)
+        #    future_seq = future_seq.write(i + 1, out)
+        
+        state = hidden_states[:, -1, :]
+        for i in range(seq_size - 1):
             inp = self.embedding(out)
-            tar_sequence = tar_sequence.write(i, inp)
-            sequence = tf.transpose(tar_sequence.stack(), [1, 0, 2])
-            lstm_out, h, _ = self.lstm(sequence)
-            c = tf.transpose(tar_hidden_states.stack(), [1, 0, 2])
-            attn, _ = self.attention([c[:, :past_length + i, :], tar_masks[:, :past_length + i]])
+            lstm_out, state = self.lstm_cell(inp, state, training)
+            c = tf.transpose(tar_hidden_states.stack(), [1, 0, 2])[:, :past_length + i, : ]
+            attn, _ = self.attention([c, tar_masks[:, :past_length + i]])
             attn = tf.squeeze(attn)
             out = tf.concat([lstm_out, attn], axis=-1)
             out = self.linear(out)
-            tar_hidden_states = tar_hidden_states.write(past_length + i, lstm_out)
-            future_seq = future_seq.write(i, out)
+            tar_hidden_states = tar_hidden_states.write(past_length + i, state)
+            future_seq = future_seq.write(i + 1, out)
 
         seq = tf.transpose(future_seq.stack(), [1, 0, 2])
-        return seq, tar_hidden_states
+        return seq, tf.transpose(tar_hidden_states.stack(), [1, 0, 2])
 
 
 class STTransformer(keras.Model):
@@ -418,11 +454,14 @@ class STTransformer(keras.Model):
         self.spatial_mlp = keras.models.Sequential([keras.layers.Dense(512, activation='relu'),
                                                     keras.layers.Dense(256)])
         self.rnn_encoder = RNNEncoder()
-        self.rnn_decoder = RNNDecoder()
+        self.rnn_decoder = RNNDecoder(neigh_size)
         # training
         self.loss_object = tf.keras.losses.MeanSquaredError(reduction='sum')
+        #self.loss_object = tf.keras.losses.MeanSquaredError()
+        self.ownloss_weights = tf.constant([(1 + 0.001)**i for i in range(self.seq_size)])[tf.newaxis, :, tf.newaxis, tf.newaxis]
         self.final_checkpoint = tf.train.Checkpoint(model=self)
         self.optimizer = None
+        self.curr_step = 0
 
     @tf.function
     def call(self, inputs, training, stds=None):
@@ -457,15 +496,19 @@ class STTransformer(keras.Model):
         embeddings = squeezed_neigh_mask[:, :, :, tf.newaxis] * output  # (keep batch, keep seq, keep neigh, copy mask to feat dim)
         embeddings = tf.reshape(embeddings, [-1, self.seq_size, self.neigh_size * emb_size])
         embeddings = self.spatial_mlp(embeddings)
-        enc_output = self.rnn_encoder(embeddings)
+        enc_output = self.rnn_encoder(embeddings, training)
         init_point = tf.reshape(future[:, 0, :, :3], [-1, 3 * self.neigh_size])
-        output_dec = self.rnn_decoder([enc_output, past_seq_masks, init_point], 5)
-        #output_dec = tf.reshape(output_dec, [-1, self.seq_size, self.neigh_size, 3])
+        output_dec, attn_vecs = self.rnn_decoder([enc_output, past_seq_masks, init_point], self.seq_size, training)
+        output_dec = tf.reshape(output_dec, [-1, self.seq_size, self.neigh_size, 3])
         return output_dec
 
     def loss_function(self, real, pred):
-        # loss_ = (tf.reduce_sum(((real-pred)**2)*self.ownloss_weights)/3) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
-        loss_ = self.loss_object(real, pred) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
+        if self.curr_step > 6000:
+                loss_ = (tf.reduce_sum(((real-pred)**2)*self.ownloss_weights)/3) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
+        else:
+                loss_ = self.loss_object(real, pred) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
+        #loss_ = self.loss_object(real, pred)
+        self.curr_step += 1
         return loss_
 
     @tf.function
@@ -486,7 +529,7 @@ class STTransformer(keras.Model):
         return loss
 
     def eval_step(self, past, future, maps):
-        preds = self.inference((past, future, maps), False)
+        preds = self.inference((past, future, maps))
         squeezed_neigh = tf.squeeze(future[3])
         preds = mask_output(preds, squeezed_neigh, 'neigh')
         return preds
@@ -557,20 +600,4 @@ class STTransformer(keras.Model):
             epsilon = params.get('epsilon', 1e-9)
             self.optimizer = tf.keras.optimizers.Adam(lr, beta_1=b1, beta_2=b2, epsilon=epsilon)
 
-def f():
-    t = tf.TensorArray(dtype='float32', size=5)
-    for i in range(3):
-        t = t.write(0, [1.])
 
-    return t.stack()
-
-inp = tf.constant(np.random.rand(3, 10, 5, 3).astype('float32'))
-mask = tf.constant(np.random.choice(2, (3, 1, 10, 1, 5)).astype('float32'))
-seq_mask = tf.constant(np.random.choice(2, (3, 10)).astype('float32'))
-maps = tf.constant(np.random.rand(3, 5, 256, 256, 3).astype('float32'))
-
-model = STTransformer(256, 10, 5, 256, 1, 1, 1, 1, 3)
-out = model([(inp, None, seq_mask, mask, None), (inp, None, None, None, None), maps], False)
-l = out
-
-#f()
