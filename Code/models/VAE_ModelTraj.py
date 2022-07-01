@@ -407,7 +407,7 @@ class STTransformer(keras.Model):
         output = self.decode([future, future_speed, futu_speed_masks, past_speed_masks, enc_out, sp_enc_out], training)
         return output
 
-    def loss_function(self, real, pred, z_log_var, z_mean):
+    def loss_function(self, real, pred):
         # loss_ = (tf.reduce_sum(((real-pred)**2)*self.ownloss_weights)/3) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
         loss_ = self.loss_object(real, pred) * (1. / (self.seq_size * self.neigh_size * self.batch_size))
         return loss_
@@ -418,9 +418,9 @@ class STTransformer(keras.Model):
         neigh_out_masks = tf.squeeze(future[3])
 
         with tf.GradientTape() as tape:
-            predictions, z_mean, z_var = self.inference((past, future, maps), stds, True)
+            predictions = self.inference((past, future, maps), stds, True)
             masked_predictions = mask_output(predictions, neigh_out_masks, 'neigh')
-            loss = self.loss_function(future[0], masked_predictions, z_var, z_mean)
+            loss = self.loss_function(future[0], masked_predictions)
 
         gradients = tape.gradient(loss, self.trainable_variables)
         gradients = [tf.clip_by_norm(g, 2.0) for g in gradients]

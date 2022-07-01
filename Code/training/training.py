@@ -6,7 +6,8 @@ import tensorflow as tf
 import datetime
 import time
 # own libraries
-from Code.models.Model_traj import STTransformer
+#from Code.models.Model_traj import STTransformer
+from Code.models.VAE_ModelTraj import STTransformer
 #from Code.models.RNN_Transformer import STTransformer
 from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
@@ -208,9 +209,9 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
         start = time.time()
         for batch_index, (past, future, maps, _) in enumerate(dataset):
             loss = distributed_step([past, future, maps, stds], model.iterative_train_step)
-            if batch_index % 600 == 0:
-            	print(batch_index, '. batch loss: ', loss, flush=True)
             losses.append(loss)
+            if batch_index % 600 == 0:
+            	print(batch_index, '. batch loss: ', tf.reduce_mean(losses), flush=True)
             if np.isnan(loss.numpy()):
                 break
 
