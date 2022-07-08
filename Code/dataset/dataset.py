@@ -98,7 +98,11 @@ def stamp_positions_by_batch(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.
 
 
 def adapt_spa_mask(mask):
-    return mask[np.newaxis, :, np.newaxis, :].astype(np.float32)   # (<new axis head>, seq, <new axis neighbor>, neighbors)
+    new_mask = np.ones((mask.shape[0], mask.shape[1], mask.shape[1]))
+    for lay, diag in zip(new_mask, mask):
+       np.fill_diagonal(lay, diag)
+    return mask[np.newaxis, :, np.newaxis, :].astype(np.float32), new_mask[np.newaxis, :, :, :].astype(np.float32)
+    #return mask[np.newaxis, :, np.newaxis, :].astype(np.float32)   # (<new axis head>, seq, <new axis neighbor>, neighbors)
                                                                    #  to broadcast when doing addition in the attention layer
 
 
@@ -161,15 +165,19 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     futu_speed_masks, futu_neigh_masks = [], []
     yaws = []
     past_seq_masks, future_seq_masks = [], []
-
+    extra_masks, extra_f_masks = [], []
     # get masks
     for input_ in inputs:
         past_s_mask = adapt_seq_mask(input_['past_neighMask'])
         futu_s_mask = adapt_seq_mask(input_['future_neighMask'])
         past_speed_masks.append(past_s_mask[:, :, :, 1:])
         futu_speed_masks.append(futu_s_mask[:, :, :, 1:])
-        past_neigh_masks.append(adapt_spa_mask(input_['past_neighMask']))
-        futu_neigh_masks.append(adapt_spa_mask(input_['future_neighMask']))
+        past_n_mask, extra_mask = adapt_spa_mask(input_['past_neighMask']) 
+        futu_n_mask, f_extra_mask = adapt_spa_mask(input_['future_neighMask']) 
+        past_neigh_masks.append(past_n_mask)
+        futu_neigh_masks.append(futu_n_mask)
+        extra_masks.append(extra_mask)
+        extra_f_masks.append(f_extra_mask)
         past_seq_masks.append(past_s_mask)
         future_seq_masks.append(futu_s_mask)
         yaws.append(float(input_['origin_yaw']))
@@ -189,7 +197,7 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     future_speed = np.transpose(future_speed, [0, 2, 1, 3])
 
     # get datasets
-    past_ds = tf.data.Dataset.from_tensor_slices((past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks))
+    past_ds = tf.data.Dataset.from_tensor_slices((past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks, extra_masks))
     future_ds = tf.data.Dataset.from_tensor_slices((future, future_speed, future_seq_masks, futu_neigh_masks, futu_speed_masks))
     target_ds = tf.data.Dataset.from_tensor_slices((future_shifted, full_traj, yaws, ids))
     bitmaps_ds = tf.data.Dataset.from_tensor_slices((ids, past, past_neigh_masks, yaws))

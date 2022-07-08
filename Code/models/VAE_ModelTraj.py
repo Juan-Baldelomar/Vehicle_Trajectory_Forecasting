@@ -69,7 +69,8 @@ def ScaledDotProduct(Q, K, V, mask=None):
         attention += (mask * -1e9)
 
     # compute values and weighted sum of their attention
-    weights = tf.nn.softmax(attention, axis=-1)
+    # weights = tf.nn.softmax(attention, axis=-1)
+    weights = tf.nn.sigmoid(attention)
     # weights = tf.nn.sigmoid(attention)
     output = tf.matmul(weights, V)
 
@@ -134,11 +135,11 @@ class EncoderLayer(keras.layers.Layer):
 
         # layers
         self.MH = MultiHeadAttention(dk, num_heads)
-        # self.ffn = get_ffn(dk, hidden_layer_size)
+        #self.ffn = get_ffn(dk, hidden_layer_size)
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
-        # self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
+        #self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
         self.dropout1 = keras.layers.Dropout(drop_rate)
-        # self.dropout2 = keras.layers.Dropout(drop_rate)
+        #self.dropout2 = keras.layers.Dropout(drop_rate)
 
     def call(self, x, training, mask):
         if type(x) in (list, tuple):
@@ -152,9 +153,9 @@ class EncoderLayer(keras.layers.Layer):
         attn_output = self.dropout1(attn_output, training=training)
         z = self.normLayer1(x + attn_output)
         # normalization and feed forward layers
-        # output = self.ffn(z)
-        # output = self.dropout2(output, training=training)
-        # output = self.normLayer2(z + output)
+        #output = self.ffn(z)
+        #output = self.dropout2(output, training=training)
+        #output = self.normLayer2(z + output)
 
         return z
 
@@ -165,15 +166,15 @@ class DecoderLayer(keras.layers.Layer):
         # layers
         self.SAMH = MultiHeadAttention(dk, num_heads)
         self.EDMH = MultiHeadAttention(dk, num_heads)
-        # self.ffn = get_ffn(dk, hidden_layer)
+        #self.ffn = get_ffn(dk, hidden_layer)
 
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
         self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
-        # self.normLayer3 = keras.layers.LayerNormalization(epsilon=1e-6)\
+        #self.normLayer3 = keras.layers.LayerNormalization(epsilon=1e-6)\
 
         self.dropout1 = keras.layers.Dropout(drop_rate)
         self.dropout2 = keras.layers.Dropout(drop_rate)
-        # self.dropout3 = keras.layers.Dropout(drop_rate)
+        #self.dropout3 = keras.layers.Dropout(drop_rate)
 
     def call(self, x, enc_output, training, look_ahead_mask, padding_mask):
         # self attention computation
@@ -187,9 +188,9 @@ class DecoderLayer(keras.layers.Layer):
         z = self.normLayer2(z + enc_dec_out)
 
         # feed forward computation
-        # output = self.ffn(z)
-        # output = self.dropout3(output, training=training)
-        # output = self.normLayer3(z + output)
+        #output = self.ffn(z)
+        #output = self.dropout3(output, training=training)
+        #output = self.normLayer3(z + output)
 
         return z, self_attn, enc_dec_attn
 
@@ -352,7 +353,7 @@ class STTransformer(keras.Model):
 
     @tf.function
     def encode(self, inputs, training):
-        past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks, maps = inputs
+        past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks, extra_neigh_masks, maps = inputs
         _, _, neighs, _ = past.shape
 
         past = self.feat_embedding(past)
@@ -384,7 +385,7 @@ class STTransformer(keras.Model):
         output = tf.transpose(output, [0, 2, 1, 3])  # (batch, seq, neigh, [x,y])
 
         # EXPERIMENTAL
-        output = tf.concat([output, sp_enc_out], axis=-1)
+        #output = tf.concat([output, sp_enc_out], axis=-1)
         # output = tf.concat([output, sp_out], axis=-1)
         output = self.linear(output)
         # END EXPERIMENTAL
