@@ -195,6 +195,9 @@ class ShiftsEgoStep(AgentTimestep):
         self.speed = np.sqrt(x_speed ** 2 + y_speed ** 2)
         self.accel = np.sqrt(x_accel ** 2 + y_accel ** 2)
 
+    def to_tuple(self):
+        return self.x, self.y, self.rot, self.x_speed, self.y_speed, self.x_accel, self.y_accel
+
 
 class ShiftTimeStep(ShiftsEgoStep):
     def __init__(self, x: float, y: float, rot: float, x_speed: float, y_speed: float, x_accel: float,
@@ -203,6 +206,10 @@ class ShiftTimeStep(ShiftsEgoStep):
         self.ego_pos_x = ego_pos_x
         self.ego_pos_y = ego_pos_y
         self.ego_rot = ego_rot
+
+    def to_tuple(self):
+        return self.x, self.y, self.rot, self.x_speed, self.y_speed, self.x_accel, self.y_accel, \
+               self.ego_pos_x, self.ego_pos_y, self.ego_rot
 
 
 class ShiftsBitmap(BitmapFeature):

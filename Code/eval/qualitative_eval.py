@@ -1,5 +1,4 @@
 import numpy as np
-#from matplotlib import pyplot as plt
 import glob
 #from matplotlib import pyplot
 
@@ -48,21 +47,45 @@ def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
     return bitmaps
 
 
-"""def visualize(index):
-    files = glob.glob('../qual_eval/*')
-    if index == -1:
-        start = 0
-        end = len(files)
-    else:
-        start = index
-        end = index + 1
+# files = glob.glob('../qual_eval/*')
+# files = [f.split('/')[-1] for f in files]
+# files = [f.split('_')[0] for f in files]
+#
+# from Code.utils import save_utils as dl
+# from Code.dataset.DataModel import ShiftsBitmap
+# from Code.dataset.DataModel import ShiftsEgoStep
+#
+# origins_info = dl.load_pkl_data('../dataset/origins_info.pkl')
+#
+# bitmap_gen = ShiftsBitmap(rows=512, cols=512, resolution=0.2)
+# origin = origins_info[files[0]]
+# step = ShiftsEgoStep(*origin[0])
+# bitmaps = bitmap_gen.getMasks(step, map_name=origin[1])
+#
+# from matplotlib import pyplot as plt
+# bitmaps = np.transpose(bitmaps, [1, 2, 0])
+# zeros = np.zeros((512, 512, 1))
+# bitmaps = np.concatenate([bitmaps, zeros], axis=2)
+#
+# plt.imshow(bitmaps)
+# plt.show()
+if __name__ == '__main__':
+    from matplotlib import pyplot as plt
 
-    all_bitmaps = [(file, np.load(file)['bitmaps']) for file in files[start:end]]
-    for name, bitmaps in all_bitmaps:
-        for bitmap in bitmaps:
-            plt.imshow(np.transpose(-0.2 + bitmap, [1, 2, 0]))
-            plt.title(name)
-            plt.show()
+    def visualize(index):
+        files = glob.glob('../qual_eval/*')
+        if index == -1:
+            start = 0
+            end = len(files)
+        else:
+            start = index
+            end = index + 1
 
-
-#visualize(-1)"""
+        all_bitmaps = [(file, np.load(file)['bitmaps']) for file in files[start:end]]
+        for name, bitmaps in all_bitmaps:
+            for bitmap in bitmaps:
+                plt.imshow(np.transpose(-0.2 + bitmap, [1, 2, 0]))
+                #plt.title(name)
+                #plt.axis = False
+                plt.show()
+    visualize(-1)

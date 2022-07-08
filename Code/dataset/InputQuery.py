@@ -200,7 +200,8 @@ class InputQuery:
                 # turn off mask in this position
                 inputMask[s_index, neighbor_pos] = 0
 
-        return inputTensor, inputMask, bitmaps, origin_timestep.rot
+        origin  = (origin_timestep.x, origin_timestep.y, origin_timestep.rot)
+        return inputTensor, inputMask, bitmaps, origin
 
 # ---------------------------------------------------------------- FUNCTIONS TO BUILD INPUTS ----------------------------------------------------------------
 
@@ -220,7 +221,7 @@ class InputQuery:
             # traverse all the possible trajectories for and ego vehicle
             for i, (_, _) in enumerate(ego_vehicle.indexes):
                 # get inputTensor and its mask centered in egovehicle
-                inputTensor, inputMask, bitmaps, yaw = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
+                inputTensor, inputMask, bitmaps, origin = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
                                                                                   offset=offset, bitmap_extractor=bitmap_extractor, **kwargs)
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
                 # split trajectories into input and target
@@ -233,7 +234,7 @@ class InputQuery:
                                     'future_neighMask': tar_mask,
                                     'future_seqMask': seq_tarMask,
                                     'full_traj': inputTensor,
-                                    'origin_yaw': yaw,
+                                    'origin': origin,
                                     'ego_id': name})
                 # save bitmaps and store name
                 if bitmap_extractor is not None:

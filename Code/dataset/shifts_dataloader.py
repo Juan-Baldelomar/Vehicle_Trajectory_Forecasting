@@ -4,7 +4,7 @@ from Code.dataset.dataloader import Loader
 
 # data manipulation and tools
 import numpy as np
-from DataModel import *
+from Code.dataset.DataModel import *
 import os
 
 # shifts libraries

@@ -1,7 +1,7 @@
 
 # base class
-from dataloader import Loader
-from DataModel import *
+from Code.dataset.dataloader import Loader
+from Code.dataset.DataModel import *
 
 # tools
 import os.path
