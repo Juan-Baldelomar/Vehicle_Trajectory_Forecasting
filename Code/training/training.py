@@ -1,19 +1,31 @@
 # scientific libraries
 import numpy as np
 import tensorflow as tf
-#from matplotlib import pyplot
+
 # utils
+import os
 import datetime
 import time
+
 # own libraries
-#from Code.models.Model_traj import STTransformer
+# from Code.models.Model_traj import STTransformer
 from Code.models.VAE_ModelTraj import STTransformer
-#from Code.models.RNN_Transformer import STTransformer
+# from Code.models.RNN_Transformer import STTransformer
 from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
 from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
 from Code.eval.quantitative_eval import ADE
 from Code.eval.qualitative_eval import stamp_traj
+
+
+def get_eval_filename(filename):
+    # get parent directory and basename
+    directory = os.path.dirname(filename)
+    basename = os.path.basename(filename)
+    # new basename
+    basename, ext = basename.split('.')
+    basename = basename + '_best_eval.' + ext
+    return '/'.join([directory, basename])
 
 
 def split_params(params, model_class):
@@ -57,6 +69,12 @@ def split_params(params, model_class):
         'save_opt_conf_path': params.get('save_opt_conf_path', preload_params['opt_conf_path'])
     })
 
+    # paths to store opt and model weights for best eval result
+    preload_params.update({
+        'best_eval_model_path': get_eval_filename(preload_params['save_model_path']),
+        'best_eval_opt_weights_path': get_eval_filename(preload_params['save_opt_weights_path']),
+    })
+
     # get dataset params
     data_params = {
         'data_path': params['data_path'],
@@ -66,7 +84,7 @@ def split_params(params, model_class):
     # get eval dataset params. If none then use the same as train dataset
     data_params.update({
         'eval_data_path': params.get('eval_data_path', data_params['data_path']),
-        'eval_maps_dir':  params.get('eval_maps_dir', data_params['maps_dir'])
+        'eval_maps_dir': params.get('eval_maps_dir', data_params['maps_dir'])
     })
 
     # logging path
@@ -76,7 +94,8 @@ def split_params(params, model_class):
 
 def save_optimizer(optimizer, weights_path, config_path):
     save_pkl_data(optimizer.get_weights(), weights_path, 4)
-    save_pkl_data(optimizer.get_config(), config_path, 4)
+    if config_path is not None:
+        save_pkl_data(optimizer.get_config(), config_path, 4)
 
 
 def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_weights_path=None):
@@ -115,7 +134,9 @@ def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimize
     # preload weights
     init_loss, init_epoch = load_model_and_opt(preload, model,
                                                preload_params['model_path'], preload_params['opt_weights_path'])
-    return model, init_loss, init_epoch
+
+    eval_metric = load_pkl_data(preload_params['best_eval_model_path'])['loss'] if preload else np.inf
+    return model, init_loss, init_epoch, eval_metric
 
 
 def save_state(model, optimizer, loss, epoch, model_path, opt_weight_path, opt_conf_path):
@@ -124,8 +145,6 @@ def save_state(model, optimizer, loss, epoch, model_path, opt_weight_path, opt_c
         model_path = 'Code/weights/best_' + class_name + '_weights.pkl'
     if opt_weight_path is None:
         opt_weight_path = 'Code/weights/best_opt_' + class_name + 'weight.pkl'
-    if opt_conf_path is None:
-        opt_conf_path = 'Code/config/best_opt_' + class_name + 'conf.pkl'
 
     # validate if paths exist or create them
     directories = list(map(os.path.dirname, [model_path, opt_weight_path, opt_conf_path]))
@@ -147,11 +166,11 @@ def get_logger(logs_dir):
 
 
 def eval_model(model, dataset, stds, perform_qualitative_eval=False):
-    l_ade = []
+    losses, l_ade = [], []
     counter = 0
     for (past, future, maps, targets) in dataset:
         batch_size = len(past)
-        preds = model.eval_step(past, future, maps)
+        preds, loss = model.eval_step(past, future, maps)
         # swap neighbors and sequence dimension
         all_targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
         all_preds = tf.transpose(preds[:, :, :, :2], [0, 2, 1, 3])
@@ -160,7 +179,7 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
         all_preds = tf.reshape(all_preds, (-1, 26, 2))
         ade = ADE(all_targets.numpy(), all_preds.numpy())
         l_ade.append(ade)
-        print('ade: ', ade)
+        losses.append(loss)
 
         if np.random.rand() < 0.2 and perform_qualitative_eval:
             n_element = np.random.choice(batch_size)
@@ -176,11 +195,11 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
             np.savez_compressed(name, bitmaps=bitmaps)
             print('traj plot created:', name, flush=True)
             counter += 1
-            #for i, bitmap in enumerate(bitmaps):
-            #    name = 'qual_eval/pred_' + map_id[:-4] + '_' + str(i) + '.png'
-            #    pyplot.imsave(name, np.transpose(bitmap, [1, 2, 0]))
-
-    print('mean ade: ', np.mean(np.array(l_ade)))
+    mean_ade = np.mean(np.array(l_ade))
+    mean_loss = np.mean(losses)
+    print('mean loss: ', mean_loss)
+    print('mean ade: ', mean_ade)
+    return mean_ade, mean_loss
 
 
 @tf.function
@@ -190,7 +209,8 @@ def distributed_step(inputs, step_fn):
     return loss
 
 
-def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir=None):
+def train(model, epochs, init_loss, init_epoch, eval_metric, model_path, opt_weights_path,
+          opt_conf_path, best_model_path, best_opt_path, logs_dir=None):
     # avoid creating summary writer
     if epochs == 0:
         return
@@ -201,9 +221,6 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
     # start training
     for epoch in range(init_epoch, init_epoch + epochs):
         print('epoch: ', epoch)
-        if epoch % 4 == 0:
-            print(' ----------------------------- EVALUATING MODEL -----------------------------')
-            eval_model(model, eval_dataset, stds)
 
         losses = []
         start = time.time()
@@ -211,7 +228,7 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
             loss = distributed_step([past, future, maps, stds], model.iterative_train_step)
             losses.append(loss)
             if batch_index % 600 == 0:
-            	print(batch_index, '. batch loss: ', tf.reduce_mean(losses), flush=True)
+                print(batch_index, '. batch loss: ', tf.reduce_mean(losses), flush=True)
             if np.isnan(loss.numpy()):
                 break
 
@@ -219,15 +236,15 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
         avg_loss = tf.reduce_mean(losses)
         if avg_loss.numpy() < best_loss:
             best_loss = avg_loss.numpy()
-            save_state(
-                model,
-                model.optimizer,
-                best_loss,
-                epoch,
-                model_path=model_path,
-                opt_weight_path=opt_weights_path,
-                opt_conf_path=opt_conf_path
-            )
+            save_state(model, model.optimizer, best_loss, epoch, model_path=model_path,
+                       opt_weight_path=opt_weights_path, opt_conf_path=opt_conf_path)
+
+        print(' ----------------------------- EVALUATING MODEL -----------------------------')
+        ade, eval_loss = eval_model(model, eval_dataset, stds)
+        if ade < eval_metric:
+            eval_metric = ade
+            save_state(model, model.optimizer, eval_metric, epoch, model_path=best_model_path,
+                       opt_weight_path=best_opt_path, opt_conf_path=None)
 
         end = time.time()
         print('TIME ELAPSED:', datetime.timedelta(seconds=end - start))
@@ -236,11 +253,13 @@ def train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, op
         if summary_writer is not None:
             with summary_writer.as_default():
                 tf.summary.scalar('loss', avg_loss, step=epoch)
-                
+                tf.summary.scalar('eval_loss', eval_loss, step=epoch)
+
 
 if __name__ == '__main__':
     import sys
     import os
+
     # change working directory
     path = os.path.dirname(os.path.realpath(__file__))
     os.chdir(path + '/../..')
@@ -260,6 +279,8 @@ if __name__ == '__main__':
     model_path = preload_params['save_model_path']
     opt_weights_path = preload_params['save_opt_weights_path']
     opt_conf_path = preload_params['save_opt_conf_path']
+    best_eval_model_path = preload_params['best_eval_model_path']
+    best_eval_opt_path = preload_params['best_eval_opt_weights_path']
 
     # MODEL PARAMS
     dk = model_params['sp_dk']
@@ -276,14 +297,15 @@ if __name__ == '__main__':
     # GET DATASETS
     strategy = tf.distribute.MirroredStrategy()
     dataset, std_x, std_y = buildDataset(data, batch, pre_path=data_params['maps_dir'], strategy=strategy)
-    eval_dataset, _, _    = buildDataset(eval_data, batch, pre_path=data_params['eval_maps_dir'], strategy=None, shuffle=False)
+    eval_dataset, _, _ = buildDataset(eval_data, batch, pre_path=data_params['eval_maps_dir'], strategy=None, shuffle=False)
 
     with strategy.scope():
         stds = tf.constant([[[[std_x, std_y]]]], dtype=tf.float32)
         # get model
-        model, init_loss, init_epoch = init_model_and_opt(model_params, dataset, stds, dk, preload_params, optim_params)
+        model, init_loss, init_epoch, eval_metric = init_model_and_opt(model_params, dataset, stds, dk, preload_params, optim_params)
         # train model
-        train(model, epochs, init_loss, init_epoch, model_path, opt_weights_path, opt_conf_path, logs_dir)
+        train(model, epochs, init_loss, init_epoch, eval_metric, model_path, opt_weights_path,
+              opt_conf_path, best_eval_model_path, best_eval_opt_path, logs_dir)
 
     # eval model
     eval_model(model, eval_dataset, stds, perform_qualitative_eval=True)

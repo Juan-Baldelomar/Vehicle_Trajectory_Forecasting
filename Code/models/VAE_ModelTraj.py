@@ -350,6 +350,8 @@ class STTransformer(keras.Model):
         self.loss_object = tf.keras.losses.MeanSquaredError(reduction='sum')
         self.ownloss_weights = tf.constant([(1 + 0.01) ** i for i in range(self.seq_size + 1)])[tf.newaxis, :, tf.newaxis, tf.newaxis]
         self.optimizer = None
+        # eval loss different because batch is not divided in two GPUs
+        self.eval_loss = tf.keras.losses.MeanSquaredError()
 
     @tf.function
     def encode(self, inputs, training):
@@ -363,12 +365,10 @@ class STTransformer(keras.Model):
         sp_proc_maps = proc_maps[:, tf.newaxis, :, :] * tf.ones(sp_desired_shape)
         # concat features embeddings and feature maps
         past = tf.concat((past, sp_proc_maps), axis=-1)
-
         # spatial transformer
-        output = self.sp_encoder(past, past_neigh_masks, training)
-        output = output[:, 1:, :, :] - output[:, :-1, :, :]
-        sp_out = output
-        output = tf.transpose(output, [0, 2, 1, 3])
+        sp_out = self.sp_encoder(past, past_neigh_masks, training)
+        sp_out = sp_out[:, 1:, :, :] - sp_out[:, :-1, :, :]
+        output = tf.transpose(sp_out, [0, 2, 1, 3])
         # time transformer
         time_input = [past_speed, output]
         output = self.tm_encoder(time_input, past_speed_masks, training)
@@ -432,7 +432,8 @@ class STTransformer(keras.Model):
         squeezed_mask = tf.squeeze(future[3])
         preds = self.inference((past, future, maps), None, False)
         preds = mask_output(preds, squeezed_mask, 'neigh')
-        return preds
+        eval_loss = self.eval_loss(future[0], preds)
+        return preds, eval_loss
 
     @tf.function
     def inference(self, inputs, stds, training):
