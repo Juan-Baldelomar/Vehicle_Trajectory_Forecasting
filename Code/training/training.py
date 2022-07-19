@@ -92,11 +92,6 @@ def split_params(params, model_class):
     return model_params, optim_params, training_params, preload_params, data_params, logs_dir
 
 
-def save_optimizer(optimizer, weights_path, config_path):
-    save_pkl_data(optimizer.get_weights(), weights_path, 4)
-    if config_path is not None:
-        save_pkl_data(optimizer.get_config(), config_path, 4)
-
 
 def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_weights_path=None):
     init_loss, init_epoch = np.inf, 0
@@ -139,7 +134,7 @@ def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimize
     return model, init_loss, init_epoch, eval_metric
 
 
-def save_state(model, optimizer, loss, epoch, model_path, opt_weight_path, opt_conf_path):
+def save_state(model, optimizer, loss, epoch, model_path, opt_weight_path):
     class_name = model.__class__.__name__
     if model_path is None:
         model_path = 'Code/weights/best_' + class_name + '_weights.pkl'
@@ -147,12 +142,12 @@ def save_state(model, optimizer, loss, epoch, model_path, opt_weight_path, opt_c
         opt_weight_path = 'Code/weights/best_opt_' + class_name + 'weight.pkl'
 
     # validate if paths exist or create them
-    directories = list(map(os.path.dirname, [model_path, opt_weight_path, opt_conf_path]))
+    directories = list(map(os.path.dirname, [model_path, opt_weight_path]))
     valid_path(*directories)
     # store weights
     save_pkl_data({'weights': model.get_weights(), 'loss': loss, 'epoch': epoch}, model_path)
-    save_optimizer(optimizer, opt_weight_path, opt_conf_path)
-
+    save_pkl_data(optimizer.get_weights(), opt_weight_path, 4)
+    
 
 def get_logger(logs_dir):
     if logs_dir is None:
@@ -237,14 +232,14 @@ def train(model, epochs, init_loss, init_epoch, eval_metric, model_path, opt_wei
         if avg_loss.numpy() < best_loss:
             best_loss = avg_loss.numpy()
             save_state(model, model.optimizer, best_loss, epoch, model_path=model_path,
-                       opt_weight_path=opt_weights_path, opt_conf_path=opt_conf_path)
+                       opt_weight_path=opt_weights_path)
 
         print(' ----------------------------- EVALUATING MODEL -----------------------------')
         ade, eval_loss = eval_model(model, eval_dataset, stds)
         if ade < eval_metric:
             eval_metric = ade
             save_state(model, model.optimizer, eval_metric, epoch, model_path=best_model_path,
-                       opt_weight_path=best_opt_path, opt_conf_path=None)
+                       opt_weight_path=best_opt_path)
 
         end = time.time()
         print('TIME ELAPSED:', datetime.timedelta(seconds=end - start))

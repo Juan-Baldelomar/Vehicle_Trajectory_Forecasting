@@ -6,7 +6,7 @@ from tensorflow.keras.layers import Dense, Conv2D, Conv2DTranspose
 from tensorflow.keras.layers import Flatten, Reshape, Dropout, BatchNormalization, Activation, LeakyReLU
 
 from Code.training.schedulers import CustomSchedule, HalveSchedule
-from Code.utils.save_utils import load_pkl_data, valid_file
+from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file
 from Code.eval.quantitative_eval import ADE
 
 # utilities
@@ -432,7 +432,7 @@ class STTransformer(keras.Model):
         squeezed_mask = tf.squeeze(future[3])
         preds = self.inference((past, future, maps), None, False)
         preds = mask_output(preds, squeezed_mask, 'neigh')
-        eval_loss = self.eval_loss(future[0], preds)
+        eval_loss = self.loss_function(future[0], preds)
         return preds, eval_loss
 
     @tf.function
@@ -521,5 +521,7 @@ class STTransformer(keras.Model):
             b2 = params.get('beta_2', 0.9)
             epsilon = params.get('epsilon', 1e-9)
             self.optimizer = tf.keras.optimizers.Adam(lr, beta_1=b1, beta_2=b2, epsilon=epsilon)
+        
+        save_pkl_data(self.optimizer.get_config(), config_path, 4)
 
 # model in which inputs of neihgbors and sequences will be in the same dimension
