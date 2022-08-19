@@ -333,9 +333,9 @@ class STTransformer(keras.Model):
         self.neigh_size = neigh_size
         self.batch_size = batch
         # layers
-        self.feat_embedding = keras.layers.Dense(144)
-        self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7], strides=[2, 2, 2, 2])
-        self.sampler = Sampler(tm_dk)
+        #self.feat_embedding = keras.layers.Dense(144)
+        #self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7], strides=[2, 2, 2, 2])
+        #self.sampler = Sampler(tm_dk)
 
         # spatial
         self.sp_encoder = Encoder(features_size, neigh_size, sp_dk, num_heads=sp_enc_heads, num_encoders=sp_num_encoders, use_pos_emb=False)
@@ -372,6 +372,24 @@ class STTransformer(keras.Model):
         # time transformer
         time_input = [past_speed, output]
         output = self.tm_encoder(time_input, past_speed_masks, training)
+        return output, sp_out
+    
+    # to switch between wocnn or just the transformer, uncomment the above lines and change past_speed by output in time_input = [...]
+    @tf.function
+    def encode_abl(self, inputs, training):
+        past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks, extra_neigh_masks, _ = inputs
+        _, _, neighs, _ = past.shape
+
+	# toggle comments from here 
+        sp_out = self.sp_encoder(past, past_neigh_masks, training)
+        sp_out = sp_out[:, 1:, :, :] - sp_out[:, :-1, :, :]
+        output = tf.transpose(sp_out, [0, 2, 1, 3])
+        
+        # time transformer
+        time_input = [past_speed, output]
+        #time_input = [past_speed, past_speed]
+        output = self.tm_encoder(time_input, past_speed_masks, training)
+        #return output, None
         return output, sp_out
 
     @tf.function
@@ -447,7 +465,7 @@ class STTransformer(keras.Model):
         tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
         tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
 
-        enc_out, sp_enc_out = self.encode([*past, maps], training)
+        enc_out, sp_enc_out = self.encode_abl([*past, maps], training)
         past_info = [past_speed_masks, enc_out, sp_enc_out]
 
         for i in range(2, self.seq_size + 1):
@@ -486,7 +504,7 @@ class STTransformer(keras.Model):
         }
         return model_params
 
-    def get_optimizer(self, dk, preload, config_path=None, params=None):
+    def get_optimizer(self, dk, preload, save_path, config_path=None, params=None):
         if params is None:
             params = {}
 
@@ -522,6 +540,6 @@ class STTransformer(keras.Model):
             epsilon = params.get('epsilon', 1e-9)
             self.optimizer = tf.keras.optimizers.Adam(lr, beta_1=b1, beta_2=b2, epsilon=epsilon)
         
-        save_pkl_data(self.optimizer.get_config(), config_path, 4)
+        save_pkl_data(self.optimizer.get_config(), save_path, 4)
 
 # model in which inputs of neihgbors and sequences will be in the same dimension

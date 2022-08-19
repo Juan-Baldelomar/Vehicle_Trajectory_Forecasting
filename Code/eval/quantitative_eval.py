@@ -11,6 +11,12 @@ def ADE(real, pred):
     mean_diff = np.mean(diff_sq)
     return mean_diff
 
+def FDE(real, pred):
+    diff_sq = (real[:, -1:, :] - pred[:, -1:, :])**2
+    diff_sq = np.sum(diff_sq, axis=2)
+    diff_sq = np.sqrt(diff_sq)
+    mean_diff = np.mean(diff_sq)
+    return mean_diff
 
 #ADE(real, pred)
 

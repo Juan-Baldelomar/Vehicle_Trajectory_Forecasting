@@ -14,7 +14,7 @@ from Code.models.VAE_ModelTraj import STTransformer
 from Code.models.AgentFormer import STE_Transformer
 from Code.dataset.dataset import buildDataset
 from Code.utils.save_utils import load_pkl_data, save_pkl_data, valid_file, valid_path, load_parameters
-from Code.eval.quantitative_eval import ADE
+from Code.eval.quantitative_eval import ADE, FDE
 from Code.eval.qualitative_eval import stamp_traj
 
 
@@ -59,7 +59,8 @@ def split_params(params, model_class):
         'preload': params.get('preload', False),
         'model_path': params.get('model_path'),
         'opt_weights_path': params.get('opt_weights_path'),
-        'opt_conf_path': params.get('opt_conf_path')
+        'opt_conf_path': params.get('opt_conf_path'),
+        'transfer_learning': params.get('transfer_learning', False)
     }
 
     # update preload_params with different save paths if present in conf file, if not use the same as preload paths.
@@ -120,8 +121,9 @@ def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimize
     # get model and optimizer
     past, future, maps, _ = next(iter(dataset))
     preload = preload_params['preload']
+    transfer = preload_params['transfer_learning']
     model = STTransformer(**model_params)
-    model.get_optimizer(dk, preload, preload_params['opt_conf_path'], optimizer_params)
+    model.get_optimizer(dk, preload, preload_params['save_opt_conf_path'], preload_params['opt_conf_path'], optimizer_params)
 
     # init weights of model and optimizer
     strategy.run(model.iterative_train_step, args=([past, future, maps, stds],))
@@ -130,7 +132,7 @@ def init_model_and_opt(model_params, dataset, stds, dk, preload_params, optimize
     init_loss, init_epoch = load_model_and_opt(preload, model,
                                                preload_params['model_path'], preload_params['opt_weights_path'])
 
-    eval_metric = load_pkl_data(preload_params['best_eval_model_path'])['loss'] if preload else np.inf
+    eval_metric = load_pkl_data(preload_params['best_eval_model_path'])['loss'] if preload and not transfer else np.inf
     return model, init_loss, init_epoch, eval_metric
 
 
@@ -161,7 +163,7 @@ def get_logger(logs_dir):
 
 
 def eval_model(model, dataset, stds, perform_qualitative_eval=False):
-    losses, l_ade = [], []
+    losses, l_ade, l_fde = [], [], []
     counter = 0
     for (past, future, maps, targets) in dataset:
         batch_size = len(past)
@@ -173,7 +175,9 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
         all_targets = tf.reshape(all_targets, (-1, 26, 2))
         all_preds = tf.reshape(all_preds, (-1, 26, 2))
         ade = ADE(all_targets.numpy(), all_preds.numpy())
+        fde = FDE(all_targets.numpy(), all_preds.numpy())
         l_ade.append(ade)
+        l_fde.append(fde)
         losses.append(loss)
 
         if np.random.rand() < 0.2 and perform_qualitative_eval:
@@ -191,9 +195,11 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
             print('traj plot created:', name, flush=True)
             counter += 1
     mean_ade = np.mean(np.array(l_ade))
+    mean_fde = np.mean(np.array(l_fde))
     mean_loss = np.mean(losses)
     print('mean loss: ', mean_loss)
     print('mean ade: ', mean_ade)
+    print('mean fde: ', mean_fde)
     return mean_ade, mean_loss
 
 
