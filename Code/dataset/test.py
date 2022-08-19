@@ -70,26 +70,27 @@ data_name = 'val'
 # #             break
 
 # --------------------------------------- ******* TEST visualize maps and stamped positions ******* ---------------------------------------
-nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=False, version=version, data_name=data_name, loadMap=True)
+nuscenes_loader = NuscenesLoader(DATAROOT=dataroot, pickle=True, version=version, data_name=data_name, loadMap=True)
 inputQuery = InputQuery(nuscenes_loader)
 
 nuscenes_bitmap = NuscenesBitmap(nuscenes_loader.maps)
 ego_ids = list(nuscenes_loader.dataset.ego_vehicles.keys())
 ego_vehicle = nuscenes_loader.dataset.ego_vehicles[ego_ids[0]]
 
-inputs = inputQuery.get_TransformerCube_Input(10, 12, 5, 9)
+#inputs = inputQuery.get_TransformerCube_Input(10, 12, 5, 9)
 
-# nuscenes_loader.dataset.get_trajectories_indexes(use_ego_vehicles=True, L=40)
+nuscenes_loader.dataset.get_trajectories_indexes(use_ego_vehicles=True, L=40)
 # nuscenes_bitmap = NuscenesBitmap(nuscenes_loader.maps)
-# inps = inputQuery.get_egocentered_input(ego_vehicle, nuscenes_loader.dataset.agents, 40, 5, 0, 24, bitmap_extractor=nuscenes_bitmap)
-#
+rotate = True
+inps = inputQuery.get_egocentered_input(ego_vehicle, nuscenes_loader.dataset.agents, 40, 5, 0, 24, bitmap_extractor=nuscenes_bitmap, rotate=rotate)
+yaw = inps[3][2]
 # #
 # yaw = list(ego_vehicle.timesteps.values())[24].rot
-# bitmaps = stamp_positions_in_bitmap(inps[0][0:25], inps[1][0:25], inps[2], 1., yaw)
-# bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
+bitmaps = stamp_positions_in_bitmap(inps[0][0:25], inps[1][0:25], inps[2], 1., yaw)
+bitmaps = np.transpose(bitmaps, [0, 2, 3, 1])
 # #plt.figure(figsize=(5, 5))
-# plt.imshow(bitmaps[0])
-# plt.show()
+plt.imshow(bitmaps[0])
+plt.show()
 
 
 # dataroot = '/data/shifts/data/train'

@@ -380,7 +380,7 @@ class STTransformer(keras.Model):
         past, past_speed, past_seq_masks, past_neigh_masks, past_speed_masks, extra_neigh_masks, _ = inputs
         _, _, neighs, _ = past.shape
 
-	# toggle comments from here 
+        # toggle comments from here
         sp_out = self.sp_encoder(past, past_neigh_masks, training)
         sp_out = sp_out[:, 1:, :, :] - sp_out[:, :-1, :, :]
         output = tf.transpose(sp_out, [0, 2, 1, 3])

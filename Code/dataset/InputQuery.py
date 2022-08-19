@@ -148,7 +148,7 @@ class InputQuery:
         self.dataset = dataloader.dataset
 
     def get_egocentered_input(self, agent: Agent, agents, total_seq_l: int, N: int, seq_number=0,
-                              offset=-1, bitmap_extractor: BitmapFeature = None, **kwargs):
+                              offset=-1, bitmap_extractor: BitmapFeature = None, rotate=False, **kwargs):
         """
         get input scene centered in a specific ego-vehicle timestep.
         :param agent                :  agent object target, treated as center or virtual ego vehicle (meaning it could or could not be a real ego-vehicle)
@@ -156,12 +156,14 @@ class InputQuery:
         :param total_seq_l          : sequence length
         :param N                    : number of neighbors
         :param bitmap_extractor     : mode to get maps, default None. values = masks, semantic
+        :param rotate               : random rotation to input
         :param seq_number           : ego-vehicles might contain large sequences, so we might be interested in get as many scenes as possible from them.
                                       self.get_indexes should have been call, if not, assert will raise an error due to len(ego_vehicle.indexes) = 0
         :param offset               : offset int that indicates the index of the timestep to use as origin. If -1 none is taken
         :return                     : InputTensor with shape (sequence, neighbors, features) and InputMask (sequence, neighbors) that masks neighbors that do not appear.
         """
         assert (len(agent.indexes) > 0)
+        angle = 0 if not rotate else np.random.uniform(0, np.pi)
         start, end = agent.indexes[seq_number]
         inputTensor = np.zeros((total_seq_l, N, 5))     # (seq, neighbors, features)
         inputMask = np.ones((total_seq_l, N))           # at the beginning, all neighbors have padding
@@ -169,10 +171,9 @@ class InputQuery:
         # timesteps that will be traversed, timestep[0] = key, timestep[1] = egostep object
         timesteps = list(agent.timesteps.items())[start: end]
         origin_timestep: AgentTimestep = timesteps[offset][1] if offset != -1 else None
-
         # get bitmaps for center agent (ego vehicle or agent treated as ego vehicle)
         if bitmap_extractor is not None:
-            bitmaps = bitmap_extractor.getMasks(origin_timestep, agent.map_name, **kwargs)
+            bitmaps = bitmap_extractor.getMasks(origin_timestep, agent.map_name, angle=angle, **kwargs)
 
         # available positions start from 1 because ego vehicle occupies position 0.
         neighbors_positions = self.dataset.get_agent_neighbors(agent, seq_number)
@@ -200,6 +201,8 @@ class InputQuery:
                 # turn off mask in this position
                 inputMask[s_index, neighbor_pos] = 0
 
+        if rotate:
+            inputTensor = self.rotate_input(inputTensor, angle)
         origin  = (origin_timestep.x, origin_timestep.y, origin_timestep.rot)
         return inputTensor, inputMask, bitmaps, origin
 
@@ -213,7 +216,7 @@ class InputQuery:
         ego_vehicles: dict = self.dataset.ego_vehicles if use_ego_vehicles else self.dataset.agents
         agents: dict = self.dataset.agents
         list_inputs = []
-        # max sequence lenght
+        # max sequence length
         total_seq_l = inp_seq_l + tar_seq_l
 
         # traverse all ego vehicles
@@ -222,7 +225,7 @@ class InputQuery:
             for i, (_, _) in enumerate(ego_vehicle.indexes):
                 # get inputTensor and its mask centered in egovehicle
                 inputTensor, inputMask, bitmaps, origin = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
-                                                                                  offset=offset, bitmap_extractor=bitmap_extractor, **kwargs)
+                                                                                     offset=offset, bitmap_extractor=bitmap_extractor, **kwargs)
                 seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
                 # split trajectories into input and target
                 name = ego_id + '_' + str(i)
@@ -235,6 +238,7 @@ class InputQuery:
                                     'future_seqMask': seq_tarMask,
                                     'full_traj': inputTensor,
                                     'origin': origin,
+                                    'origin_yaw': origin[2],
                                     'ego_id': name})
                 # save bitmaps and store name
                 if bitmap_extractor is not None:
@@ -247,10 +251,12 @@ class InputQuery:
         x = inputs[:, :, 0]
         y = inputs[:, :, 1]
         # perform rotation (clockwise)
-        inputs[:, :, 0] = x * np.cos(yaw) + y * np.sin(yaw)
-        inputs[:, :, 1] = -x * np.sin(yaw) + y * np.cos(yaw)
-        inputs[:, :, 2] += yaw
-        return inputs
+        new_inps  = np.zeros(inputs.shape)
+        new_inps[:, :, 0] = x * np.cos(yaw) + y * np.sin(yaw)
+        new_inps[:, :, 1] = -x * np.sin(yaw) + y * np.cos(yaw)
+        new_inps[:, :, 2] = inputs[:, :, 2]
+        #inputs[:, :, 2] += yaw
+        return new_inps
 
     def get_single_Input(self, inp_seq_l, tar_seq_l, offset=-1):
         # get indexes of the sequences

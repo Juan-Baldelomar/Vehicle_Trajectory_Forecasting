@@ -44,7 +44,7 @@ class BitmapFeature:
     def __init__(self):
         pass
 
-    def getMasks(self, timestep: AgentTimestep, map_name, **kwargs):
+    def getMasks(self, timestep: AgentTimestep, map_name, angle=0, **kwargs):
         raise NotImplementedError
 
 
@@ -81,7 +81,7 @@ class NuscenesBitmap(BitmapFeature):
                           'singapore-hollandvillage': (2700, 3000),
                           'boston-seaport': (3000, 2200)}
 
-    def getMasks(self, timestep: Egostep, map_name, height=256., width=256., canvas_size=(256, 256)):
+    def getMasks(self, timestep: Egostep, map_name, angle=0, height=256., width=256., canvas_size=(256, 256)):
         """
         function to get the bitmaps of an agent's positions
         :param timestep   : angle of rotation of the masks
@@ -95,7 +95,7 @@ class NuscenesBitmap(BitmapFeature):
             raise ValueError("maps arg should not be None")
         # get map
         nusc_map = self.maps[map_name]
-        x, y, yaw = timestep.x, timestep.y, timestep.rot * 180 / np.pi
+        x, y, yaw = timestep.x, timestep.y, (timestep.rot + angle) * 180 / np.pi
         # build patch
         patch_box = (x, y, height, width)
         patch_angle = yaw  # Default orientation (yaw=0) where North is up
@@ -218,14 +218,14 @@ class ShiftsBitmap(BitmapFeature):
         self.renderer = None
         self.set_renderer(renderer_config, rows, cols, resolution)
 
-    def getMasks(self, timestep: ShiftTimeStep, map_name, dummy_param=None):
+    def getMasks(self, timestep: ShiftTimeStep, map_name, angle=0, dummy_param=None):
         scene = read_scene_from_file(map_name)
         # track = scene.past_ego_track[0]
         # create virtual Track
         track = VehicleTrack()
         track.position.x = timestep.x
         track.position.y = timestep.y
-        track.yaw = timestep.rot
+        track.yaw = timestep.rot + angle
         track.linear_velocity.x = timestep.x_speed
         track.linear_velocity.y = timestep.y_speed
         track.linear_acceleration.x = timestep.x_accel
