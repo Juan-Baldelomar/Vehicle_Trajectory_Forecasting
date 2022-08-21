@@ -47,6 +47,18 @@ def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
     return bitmaps
 
 
+def get_visual_attn(attention_inputs, masks):
+    interest_points = []
+    for num_input, (sample, mask) in enumerate(zip(attention_inputs, masks)):
+        for timestep in range(len(sample)):
+            for i in range(5):
+                # skip padded elements
+                if mask[timestep, i] == 0:
+                    continue
+                for j in range(5):
+                    if i != j and sample[timestep, i, j] > 0.3:
+                        interest_points.append((num_input, timestep, i, j))
+    return interest_points
 # files = glob.glob('../qual_eval/*')
 # files = [f.split('/')[-1] for f in files]
 # files = [f.split('_')[0] for f in files]

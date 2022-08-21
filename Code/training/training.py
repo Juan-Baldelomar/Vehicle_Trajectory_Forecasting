@@ -163,11 +163,12 @@ def get_logger(logs_dir):
 
 
 def eval_model(model, dataset, stds, perform_qualitative_eval=False):
-    losses, l_ade, l_fde = [], [], []
+    losses, l_ade, l_fde, l_weights = [], [], [], []
     counter = 0
     for (past, future, maps, targets) in dataset:
         batch_size = len(past)
-        preds, loss = model.eval_step(past, future, maps)
+        preds, loss, weights = model.eval_step(past, future, maps)
+        l_weights.append(weights.numpy())
         # swap neighbors and sequence dimension
         all_targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
         all_preds = tf.transpose(preds[:, :, :, :2], [0, 2, 1, 3])
@@ -194,6 +195,9 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
             np.savez_compressed(name, bitmaps=bitmaps)
             print('traj plot created:', name, flush=True)
             counter += 1
+
+    l_weights = np.array(l_weights)
+    np.savez('attn_weights.npz', l_weights)
     mean_ade = np.mean(np.array(l_ade))
     mean_fde = np.mean(np.array(l_fde))
     mean_loss = np.mean(losses)

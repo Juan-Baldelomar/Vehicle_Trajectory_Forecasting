@@ -86,8 +86,8 @@ def nuscenes_extraction(past_length, future_length, neighbors, get_bitmaps: bool
         origin_offset = past_length - 1
 
     # path to store inputs
-    maps_path  = '../data/nuscenes/maps'
-    final_path = '../data/nuscenes/train/neigh_' + str(neighbors) + '/nuscenes_extra_data.pkl'
+    maps_path  = '../data/nuscenes_extended/maps'
+    final_path = '../data/nuscenes_extended/train/neigh_' + str(neighbors) + '/nuscenes_data.pkl'
     # create needed directories
     dl.valid_path(maps_path, os.path.dirname(final_path))
     # START EXTRACTION
@@ -95,7 +95,7 @@ def nuscenes_extraction(past_length, future_length, neighbors, get_bitmaps: bool
     inputQuery = InputQuery(nuscenes_loader)
     nusc_bitmap = NuscenesBitmap(nuscenes_loader.maps) if get_bitmaps else None
     inputs = inputQuery.get_TransformerCube_Input(past_length, future_length, neighbors, origin_offset,
-                                                  use_ego_vehicles=False, bitmap_extractor=nusc_bitmap, path=maps_path)
+                                                  use_ego_vehicles=False, bitmap_extractor=nusc_bitmap, path=maps_path, rotate=True)
     dl.save_pkl_data(inputs, final_path)
 
 
@@ -113,7 +113,8 @@ def get_origin(dataroot):
 
 
 #data = dl.load_pkl_data('origins_info.pkl')
-get_origin('/data/shifts/val/*')
+#get_origin('/data/shifts/val/*')
+
 #shifts_extraction(past_length=25, future_length=25, neighbors=5, get_bitmaps=True, pickle=False, data_start=83, data_end=83)
 #join_data('../data/shifts/train/neigh_5/shifts_data_chunk', start=95, end=188)
 #data1 = dl.load_pkl_data('../data/shifts/train/neigh_5/shifts_data_all_p1_v4.pkl')
@@ -122,20 +123,20 @@ get_origin('/data/shifts/val/*')
 #dl.save_pkl_data(final_data, '../data/shifts/train/neigh_5/shifts_data_all_p4.pkl')
 
 
-# nuscenes_extraction(past_length=10, future_length=12, neighbors=5, get_bitmaps=True, pickle=True)
+nuscenes_extraction(past_length=10, future_length=12, neighbors=5, get_bitmaps=True, pickle=False)
 #
 #
-# data = dl.load_pkl_data('../data/nuscenes/train/neigh_5/nuscenes_data.pkl')
+data = dl.load_pkl_data('../data/nuscenes_extended/train/neigh_5/nuscenes_data.pkl')
 # extra_data = dl.load_pkl_data('../data/nuscenes/train/neigh_5/nuscenes_extra_data.pkl')
 # data = data + extra_data
-# n = len(data)
-# val_len = n//10
+n = len(data)
+val_len = n//10
 #
-# indexes = np.arange(n)
-# val_index = np.random.choice(n, val_len, replace=False)
-# train_index = np.setdiff1d(indexes, val_index)
-# val_data = [data[i] for i in val_index]
-# train_data = [data[i] for i in train_index]
+indexes = np.arange(n)
+val_index = np.random.choice(n, val_len, replace=False)
+train_index = np.setdiff1d(indexes, val_index)
+val_data = [data[i] for i in val_index]
+train_data = [data[i] for i in train_index]
 #
-# dl.save_pkl_data(train_data, '../data/nuscenes/train/neigh_5/nuscenes_train.pkl', protocol=4)
-# dl.save_pkl_data(val_data, '../data/nuscenes/train/neigh_5/nuscenes_val.pkl', protocol=4)
+dl.save_pkl_data(train_data, '../data/nuscenes_extended/train/neigh_5/nuscenes_train.pkl', protocol=4)
+dl.save_pkl_data(val_data, '../data/nuscenes_extended/train/neigh_5/nuscenes_val.pkl', protocol=4)

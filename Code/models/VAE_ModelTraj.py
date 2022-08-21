@@ -149,7 +149,7 @@ class EncoderLayer(keras.layers.Layer):
             k = x
 
         # multihead attention
-        attn_output, _ = self.MH(x, k, x, mask)
+        attn_output, weights = self.MH(x, k, x, mask)
         attn_output = self.dropout1(attn_output, training=training)
         z = self.normLayer1(x + attn_output)
         # normalization and feed forward layers
@@ -157,7 +157,7 @@ class EncoderLayer(keras.layers.Layer):
         #output = self.dropout2(output, training=training)
         #output = self.normLayer2(z + output)
 
-        return z
+        return z, weights
 
 
 class DecoderLayer(keras.layers.Layer):
@@ -229,9 +229,9 @@ class Encoder(keras.layers.Layer):
 
         for encoder_layer in self.encoders_stack:
             args = [x, k] if k is not None else x
-            x = encoder_layer(args, training, padding_mask)
+            x, weights = encoder_layer(args, training, padding_mask)
 
-        return x
+        return x, weights
 
 
 class Decoder(keras.layers.Layer):
@@ -366,13 +366,13 @@ class STTransformer(keras.Model):
         # concat features embeddings and feature maps
         past = tf.concat((past, sp_proc_maps), axis=-1)
         # spatial transformer
-        sp_out = self.sp_encoder(past, past_neigh_masks, training)
+        sp_out, weights = self.sp_encoder(past, past_neigh_masks, training)
         sp_out = sp_out[:, 1:, :, :] - sp_out[:, :-1, :, :]
         output = tf.transpose(sp_out, [0, 2, 1, 3])
         # time transformer
         time_input = [past_speed, output]
         output = self.tm_encoder(time_input, past_speed_masks, training)
-        return output, sp_out
+        return output, sp_out, weights
     
     # to switch between wocnn or just the transformer, uncomment the above lines and change past_speed by output in time_input = [...]
     @tf.function
@@ -381,7 +381,7 @@ class STTransformer(keras.Model):
         _, _, neighs, _ = past.shape
 
         # toggle comments from here
-        sp_out = self.sp_encoder(past, past_neigh_masks, training)
+        sp_out, weights = self.sp_encoder(past, past_neigh_masks, training)
         sp_out = sp_out[:, 1:, :, :] - sp_out[:, :-1, :, :]
         output = tf.transpose(sp_out, [0, 2, 1, 3])
         
@@ -390,7 +390,7 @@ class STTransformer(keras.Model):
         #time_input = [past_speed, past_speed]
         output = self.tm_encoder(time_input, past_speed_masks, training)
         #return output, None
-        return output, sp_out
+        return output, sp_out, weights
 
     @tf.function
     def decode(self, inputs, training):
@@ -437,7 +437,7 @@ class STTransformer(keras.Model):
         neigh_out_masks = tf.squeeze(future[3])
 
         with tf.GradientTape() as tape:
-            predictions = self.inference((past, future, maps), stds, True)
+            predictions, weights = self.inference((past, future, maps), stds, True)
             masked_predictions = mask_output(predictions, neigh_out_masks, 'neigh')
             loss = self.loss_function(future[0], masked_predictions)
 
@@ -448,10 +448,10 @@ class STTransformer(keras.Model):
 
     def eval_step(self, past, future, maps):
         squeezed_mask = tf.squeeze(future[3])
-        preds = self.inference((past, future, maps), None, False)
+        preds, weights = self.inference((past, future, maps), None, False)
         preds = mask_output(preds, squeezed_mask, 'neigh')
         eval_loss = self.loss_function(future[0], preds)
-        return preds, eval_loss
+        return preds, eval_loss, weights
 
     @tf.function
     def inference(self, inputs, stds, training):
@@ -465,7 +465,7 @@ class STTransformer(keras.Model):
         tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
         tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
 
-        enc_out, sp_enc_out = self.encode_abl([*past, maps], training)
+        enc_out, sp_enc_out, weights = self.encode_abl([*past, maps], training)
         past_info = [past_speed_masks, enc_out, sp_enc_out]
 
         for i in range(2, self.seq_size + 1):
@@ -478,7 +478,7 @@ class STTransformer(keras.Model):
             # append new prediction
             tar_sequence = tar_sequence.write(i, output[:, i, :, :])
 
-        return tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])
+        return tf.transpose(tar_sequence.stack(), [1, 0, 2, 3]), weights
 
     @staticmethod
     def get_model_params(params):

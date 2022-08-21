@@ -137,7 +137,7 @@ class EncoderLayer(keras.layers.Layer):
 
     def call(self, x, training, mask):
         # multihead attention
-        attn_output, _ = self.MH(x, x, x, mask)
+        attn_output, weights = self.MH(x, x, x, mask)
         attn_output = self.dropout1(attn_output, training=training)
         z = self.normLayer1(x + attn_output)
         # normalization and feed forward layers
@@ -145,7 +145,7 @@ class EncoderLayer(keras.layers.Layer):
         # output = self.dropout2(output, training=training)
         # output = self.normLayer2(z + output)
 
-        return z
+        return z, weights
 
 
 class DecoderLayer(keras.layers.Layer):
@@ -208,9 +208,9 @@ class Encoder(keras.layers.Layer):
         x = self.dropout(x, training=training)
 
         for encoder_layer in self.encoders_stack:
-            x = encoder_layer(x, training, padding_mask)
+            x, weights = encoder_layer(x, training, padding_mask)
 
-        return x
+        return x, weights
 
 
 class Decoder(keras.layers.Layer):

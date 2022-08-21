@@ -163,7 +163,7 @@ class InputQuery:
         :return                     : InputTensor with shape (sequence, neighbors, features) and InputMask (sequence, neighbors) that masks neighbors that do not appear.
         """
         assert (len(agent.indexes) > 0)
-        angle = 0 if not rotate else np.random.uniform(0, np.pi)
+        angle = 0 if not rotate else np.random.uniform(np.pi/4.0, np.pi)
         start, end = agent.indexes[seq_number]
         inputTensor = np.zeros((total_seq_l, N, 5))     # (seq, neighbors, features)
         inputMask = np.ones((total_seq_l, N))           # at the beginning, all neighbors have padding
@@ -209,7 +209,7 @@ class InputQuery:
 # ---------------------------------------------------------------- FUNCTIONS TO BUILD INPUTS ----------------------------------------------------------------
 
     def get_TransformerCube_Input(self, inp_seq_l, tar_seq_l, N, offset=-1, use_ego_vehicles=True,
-                                  bitmap_extractor: BitmapFeature = None, path='maps', **kwargs):
+                                  bitmap_extractor: BitmapFeature = None, path='maps', rotate=False, **kwargs):
         # get indexes of the sequences
         self.dataset.get_trajectories_indexes(use_ego_vehicles=use_ego_vehicles, L=inp_seq_l + tar_seq_l, overlap=tar_seq_l)
         # USEFUL VARIABLES
@@ -223,26 +223,29 @@ class InputQuery:
         for ego_id, ego_vehicle in ego_vehicles.items():
             # traverse all the possible trajectories for and ego vehicle
             for i, (_, _) in enumerate(ego_vehicle.indexes):
-                # get inputTensor and its mask centered in egovehicle
-                inputTensor, inputMask, bitmaps, origin = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
-                                                                                     offset=offset, bitmap_extractor=bitmap_extractor, **kwargs)
-                seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
-                # split trajectories into input and target
-                name = ego_id + '_' + str(i)
-                inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
-                list_inputs.append({'past': inp,
-                                    'past_neighMask': inp_mask,
-                                    'past_seqMask': seq_inpMask,
-                                    'future': tar,
-                                    'future_neighMask': tar_mask,
-                                    'future_seqMask': seq_tarMask,
-                                    'full_traj': inputTensor,
-                                    'origin': origin,
-                                    'origin_yaw': origin[2],
-                                    'ego_id': name})
-                # save bitmaps and store name
-                if bitmap_extractor is not None:
-                    np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
+                num_rotations = 1 if not rotate else 4
+                for n_rot in range(num_rotations):
+                    # get inputTensor and its mask centered in egovehicle
+                    inputTensor, inputMask, bitmaps, origin = self.get_egocentered_input(ego_vehicle, agents, total_seq_l, N, seq_number=i,
+                                                                                         offset=offset, bitmap_extractor=bitmap_extractor,
+                                                                                         rotate=rotate, **kwargs)
+                    seq_inputMask = np.zeros(total_seq_l)  # at the beginning, all sequence elements are padded
+                    # split trajectories into input and target
+                    name = ego_id + '_' + str(n_rot) + '_' + str(i)
+                    inp, inp_mask, seq_inpMask, tar, tar_mask, seq_tarMask = split_input(inputTensor, inputMask, seq_inputMask, inp_seq_l, tar_seq_l, N)
+                    list_inputs.append({'past': inp,
+                                        'past_neighMask': inp_mask,
+                                        'past_seqMask': seq_inpMask,
+                                        'future': tar,
+                                        'future_neighMask': tar_mask,
+                                        'future_seqMask': seq_tarMask,
+                                        'full_traj': inputTensor,
+                                        'origin': origin,
+                                        'origin_yaw': origin[2],
+                                        'ego_id': name})
+                    # save bitmaps and store name
+                    if bitmap_extractor is not None:
+                        np.savez_compressed('/'.join([path, name]), bitmaps=bitmaps)
 
         # return inputs
         return list_inputs
