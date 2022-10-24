@@ -161,14 +161,15 @@ def get_logger(logs_dir):
 
     return summary_writer
 
-
 def eval_model(model, dataset, stds, perform_qualitative_eval=False):
-    losses, l_ade, l_fde, l_weights = [], [], [], []
+    losses, l_ade, l_fde, l_weights, l_masks, l_ids = [], [], [], [], [], []
     counter = 0
     for (past, future, maps, targets) in dataset:
         batch_size = len(past)
         preds, loss, weights = model.eval_step(past, future, maps)
         l_weights.append(weights.numpy())
+        l_masks.append(past[3].numpy())
+        l_ids.append(targets[3].numpy())
         # swap neighbors and sequence dimension
         all_targets = tf.transpose(future[0][:, :, :, :2], [0, 2, 1, 3])
         all_preds = tf.transpose(preds[:, :, :, :2], [0, 2, 1, 3])
@@ -197,7 +198,9 @@ def eval_model(model, dataset, stds, perform_qualitative_eval=False):
             counter += 1
 
     l_weights = np.array(l_weights)
-    np.savez('attn_weights.npz', l_weights)
+    l_masks = np.array(l_masks)
+    l_ids = np.array(l_ids) 
+    np.savez_compressed('attn_weights.npz', weights=l_weights, masks=l_masks, ids=l_ids)
     mean_ade = np.mean(np.array(l_ade))
     mean_fde = np.mean(np.array(l_fde))
     mean_loss = np.mean(losses)
