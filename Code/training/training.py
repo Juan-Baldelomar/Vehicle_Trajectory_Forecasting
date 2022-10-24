@@ -93,7 +93,6 @@ def split_params(params, model_class):
     return model_params, optim_params, training_params, preload_params, data_params, logs_dir
 
 
-
 def load_model_and_opt(preload, model: STE_Transformer, model_path=None, opt_weights_path=None):
     init_loss, init_epoch = np.inf, 0
     if preload:

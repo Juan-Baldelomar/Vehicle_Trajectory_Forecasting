@@ -1,6 +1,12 @@
 import numpy as np
+import os
 import glob
-#from matplotlib import pyplot
+from utils.save_utils import save_pkl_data
+
+from utils import save_utils as dl
+from dataset.DataModel import ShiftsBitmap
+from dataset.DataModel import ShiftsEgoStep
+from matplotlib import pyplot as plt
 
 
 def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
@@ -47,57 +53,191 @@ def stamp_traj(inputs: np.ndarray, masks: np.ndarray, bitmaps: np.ndarray,
     return bitmaps
 
 
+def draw_circle(x_c, y_c, radius):
+    theta = np.linspace(0, 2 * np.pi, 100)
+    # Setting radius
+    # Generating x and y data
+    x = radius * np.cos(theta) + x_c
+    y = radius * np.sin(theta) + y_c
+    return x, y
+
+
+def draw_traj(x, y, pixbymeter, yaw, bitmap, length=2, width=2):
+    length = length // 2
+    width = width // 2
+    H, W, _ = bitmap.shape
+    # center pixels
+    x_p, y_p = H / 2., W / 2.
+    # perform rotation (clockwise)
+    pix_x = x * np.cos(yaw) + y * np.sin(yaw)
+    pix_y = -x * np.sin(yaw) + y * np.cos(yaw)
+    # transform to pixel position
+    pix_x = (pix_x * pixbymeter + x_p).astype(np.int32)
+    pix_y = (pix_y * pixbymeter + y_p).astype(np.int32)
+    if 0 < pix_x < W and 0 < pix_y < H:
+        bitmap[pix_y :pix_y + 1, pix_x :pix_x + 1, 0] = 255.0
+        bitmap[pix_y:pix_y + 1, pix_x:pix_x + 1, 1] = 255.0
+
+    return bitmap
+
+
+def draw_car(x, y, pixbymeter, yaw, bitmap, is_objective=False, draw_attn=True, length=5, width=5):
+    length = length//2
+    width = width//2
+    H, W, _ = bitmap.shape
+    # center pixels
+    x_p, y_p = H / 2., W / 2.
+    # perform rotation (clockwise)
+    pix_x = x * np.cos(yaw) + y * np.sin(yaw)
+    pix_y = -x * np.sin(yaw) + y * np.cos(yaw)
+    # transform to pixel position
+    pix_x = (pix_x * pixbymeter + x_p).astype(np.int32)
+    pix_y = (pix_y * pixbymeter + y_p).astype(np.int32)
+    if 0 < pix_x < W and 0 < pix_y < H:
+        bitmap[pix_y - width:pix_y + width, pix_x - length:pix_x + length, 2] = 255.0
+        if is_objective:
+            bitmap[pix_y - width:pix_y + width, pix_x - length:pix_x + length, 1] = 255.0
+
+    radius = max(length, width)
+    radius = radius+2 if not is_objective else radius-1
+    circle_x, circle_y = draw_circle(pix_x, pix_y, radius)
+    for x_c, y_c in zip(circle_x, circle_y):
+        x_c, y_c = int(x_c), int(y_c)
+        if 0 < x_c < W and 0 < y_c < H and (draw_attn or is_objective):
+            bitmap[y_c, x_c, 0] = 255.0
+
+    return bitmap
+
+
 def get_visual_attn(attention_inputs, masks):
     interest_points = []
     for num_input, (sample, mask) in enumerate(zip(attention_inputs, masks)):
-        for timestep in range(len(sample)):
-            for i in range(5):
-                # skip padded elements
-                if mask[timestep, i] == 0:
+        for n_head, head in enumerate(sample):
+            for timestep in range(len(head)):
+                if np.sum(mask[timestep]) >= 4:
                     continue
-                for j in range(5):
-                    if i != j and sample[timestep, i, j] > 0.3:
-                        interest_points.append((num_input, timestep, i, j))
+                for i in range(5):
+                    # skip padded elements or
+                    if mask[timestep, i] == 1:
+                        continue
+                    for j in range(5):
+                        if mask[timestep, j] == 1:
+                            continue
+                        if i != j and sample[n_head, timestep, i, j] > 0.3:
+                            interest_points.append((num_input, n_head, timestep))
     return interest_points
-# files = glob.glob('../qual_eval/*')
-# files = [f.split('/')[-1] for f in files]
-# files = [f.split('_')[0] for f in files]
-#
-# from Code.utils import save_utils as dl
-# from Code.dataset.DataModel import ShiftsBitmap
-# from Code.dataset.DataModel import ShiftsEgoStep
-#
-# origins_info = dl.load_pkl_data('../dataset/origins_info.pkl')
-#
-# bitmap_gen = ShiftsBitmap(rows=512, cols=512, resolution=0.2)
-# origin = origins_info[files[0]]
-# step = ShiftsEgoStep(*origin[0])
-# bitmaps = bitmap_gen.getMasks(step, map_name=origin[1])
-#
-# from matplotlib import pyplot as plt
-# bitmaps = np.transpose(bitmaps, [1, 2, 0])
-# zeros = np.zeros((512, 512, 1))
-# bitmaps = np.concatenate([bitmaps, zeros], axis=2)
-#
-# plt.imshow(bitmaps)
-# plt.show()
-if __name__ == '__main__':
-    from matplotlib import pyplot as plt
 
-    def visualize(index):
-        files = glob.glob('../qual_eval/*')
-        if index == -1:
-            start = 0
-            end = len(files)
-        else:
-            start = index
-            end = index + 1
 
-        all_bitmaps = [(file, np.load(file)['bitmaps']) for file in files[start:end]]
-        for name, bitmaps in all_bitmaps:
-            for bitmap in bitmaps:
-                plt.imshow(np.transpose(-0.2 + bitmap, [1, 2, 0]))
-                #plt.title(name)
-                #plt.axis = False
-                plt.show()
-    visualize(-1)
+def process_attn(file):
+    data = np.load(file)
+    data.allow_pickle = True
+    weights = data['weights'].reshape(-1, 8, 26, 5, 5)
+    masks = np.squeeze(data['masks']).reshape(-1, 26, 5)
+    points = get_visual_attn(weights, masks)
+    return points
+
+
+def visualize_sample(num_sample, np_points, masks, weights, ids_name, origins_info,
+                     past_data_np, bitmap_gen, c_color=1.0, l=5, w=5, resolution=0.2):
+    n_inp, head, timestep = np_points[num_sample]
+    mask = masks[n_inp, timestep]
+    weight_matrix = weights[n_inp, head, timestep]
+    origin = origins_info[ids_name[n_inp]]
+    step = ShiftsEgoStep(*origin[0])
+    bitmaps = bitmap_gen.getMasks(step, map_name=origin[1])
+    #
+
+    bitmaps = np.transpose(bitmaps, [1, 2, 0])
+    H, W, _ = bitmaps.shape
+    zeros = np.zeros((H, W, 1))
+    bitmaps = np.concatenate([bitmaps, zeros], axis=2)
+    bitmaps = bitmaps * c_color
+    for n_neigh, mask_val in enumerate(mask):
+        if mask_val == 0:
+            bitmaps = draw_car(*past_data_np[n_inp, timestep, n_neigh, 0:2], 1/resolution, origin[0][2],
+                               bitmaps, n_neigh == 0, weight_matrix[0, n_neigh] > 0.5, length=l, width=w)
+
+    for xt, yt in past_data_np[n_inp, :25, 0, 0:2]:
+        bitmaps = draw_traj(xt, yt, 1/resolution, origin[0][2], bitmaps, 1, 2)
+
+    plt.imshow(bitmaps)
+    ax = plt.gca()
+    # hide x-axis
+    ax.get_xaxis().set_visible(False)
+    # hide y-axis
+    ax.get_yaxis().set_visible(False)
+    plt.show()
+
+
+#np_points = process_attn('../../attn_weights.npz')
+#save_pkl_data(np_points, 'interest_points.pkl')
+
+np_points = np.load('interest_points.npy')
+
+# get ids
+data = np.load('../../attn_weights.npz')
+data.allow_pickle = True
+ids = data['ids']
+masks = np.squeeze(data['masks']).reshape(-1, 26, 5)
+weights = data['weights'].reshape(-1, 8, 26, 5, 5)
+
+ids = ids.reshape(-1)
+ids_name = list(map(os.path.basename, ids))
+ids_name = [name.decode('utf-8') for name in ids_name]
+ids_name = [name.split('_')[0] for name in ids_name]
+
+origins_info = dl.load_pkl_data('../dataset/origins_info.pkl')
+#
+
+
+# plot example
+origin = origins_info[ids_name[0]]
+step = ShiftsEgoStep(*origin[0])
+#bitmaps = bitmap_gen.getMasks(step, map_name=origin[1])
+#
+
+#bitmaps = np.transpose(bitmaps, [1, 2, 0])
+#zeros = np.zeros((128, 128, 1))
+#bitmaps = np.concatenate([bitmaps, zeros], axis=2)
+#
+#plt.imshow(bitmaps)
+#plt.show()
+
+past_data_np = np.load('past_data.npy')
+
+
+#car_ = draw_car(*past_data_np[0, 8, 0, 0:2], 0.2, origin[0][2], bitmaps)
+#plt.imshow(car_)
+
+
+resolution = 1.0
+bitmap_gen = ShiftsBitmap(rows=128, cols=128, resolution=resolution)
+n_inp = np.random.choice(len(np_points))
+visualize_sample(n_inp, np_points, masks, weights, ids_name, origins_info, past_data_np, bitmap_gen, 0.5, 4, 6, resolution)
+
+n_inp, head, timestep = np_points[n_inp]
+
+np.transpose(past_data_np[n_inp, :, :, :2], [1, 0, 2])
+weights[n_inp, head, timestep]
+masks[n_inp]
+# ---------------------------------- uncoment to visualize trajectories ----------------------------------
+# if __name__ == '__main__':
+#     from matplotlib import pyplot as plt
+#
+#     def visualize(index):
+#         files = glob.glob('../qual_eval/*')
+#         if index == -1:
+#             start = 0
+#             end = len(files)
+#         else:
+#             start = index
+#             end = index + 1
+#
+#         all_bitmaps = [(file, np.load(file)['bitmaps']) for file in files[start:end]]
+#         for name, bitmaps in all_bitmaps:
+#             for bitmap in bitmaps:
+#                 plt.imshow(np.transpose(-0.2 + bitmap, [1, 2, 0]))
+#                 #plt.title(name)
+#                 #plt.axis = False
+#                 plt.show()
+#     visualize(-1)

@@ -543,3 +543,4 @@ class STTransformer(keras.Model):
         save_pkl_data(self.optimizer.get_config(), save_path, 4)
 
 # model in which inputs of neihgbors and sequences will be in the same dimension
+
