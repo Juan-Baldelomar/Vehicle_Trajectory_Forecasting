@@ -55,8 +55,8 @@ def mask_output(output, masks, mode='seq'):
         mod_masks = (1 - masks)[:, :, :, tf.newaxis]  # (batch, seq, neighbors, <copy to feat dim>)
     return output * mod_masks
 
-
-def ScaledDotProduct(Q, K, V, mask=None):
+counter = 1
+def ScaledDotProduct(Q, K, V, mask=None, mode=1):
     dk = tf.cast(tf.shape(K)[-1], tf.float32)
 
     # compute attention
@@ -64,13 +64,19 @@ def ScaledDotProduct(Q, K, V, mask=None):
     attention = tf.matmul(Q, KT) / tf.sqrt(dk)
 
     # mask if necessary
-    if mask is not None:
-        # print(attention.shape)
-        attention += (mask * -1e9)
-
+    if mode == 2:
+        if mask is not None:
+               attention += (mask * -1e9)
+               weights = tf.nn.softmax(attention, axis=-1)
+    
+    else:
     # compute values and weighted sum of their attention
     # weights = tf.nn.softmax(attention, axis=-1)
-    weights = tf.nn.sigmoid(attention)
+        weights = tf.nn.sigmoid(attention)
+        if mask is not None:
+        	# print(attention.shape)
+               weights *= (1-mask)
+    
     # weights = tf.nn.sigmoid(attention)
     output = tf.matmul(weights, V)
 
@@ -78,7 +84,7 @@ def ScaledDotProduct(Q, K, V, mask=None):
 
 
 class MultiHeadAttention(keras.layers.Layer):
-    def __init__(self, dk=256, num_heads=8):
+    def __init__(self, dk=256, num_heads=8, mode=1):
         super(MultiHeadAttention, self).__init__()
 
         # params
@@ -91,6 +97,7 @@ class MultiHeadAttention(keras.layers.Layer):
         self.WK = keras.layers.Dense(dk)
         self.WV = keras.layers.Dense(dk)
         self.dense = keras.layers.Dense(dk)
+        self.mode = mode
 
     def splitheads(self, x):
         batch_size, seq_length = x.shape[0:2]
@@ -113,7 +120,7 @@ class MultiHeadAttention(keras.layers.Layer):
         v = self.splitheads(v)
 
         # compute attention and merge heads
-        attn_output, attention = ScaledDotProduct(q, k, v, mask)  # (batch, head, seq, neighbors, features_by_head)
+        attn_output, attention = ScaledDotProduct(q, k, v, mask, self.mode)  # (batch, head, seq, neighbors, features_by_head)
         attn_output = tf.transpose(attn_output, (0, 2, 3, 1, 4))  # (batch, seq, neighbors, head, features_by_head)
         concat_output = tf.reshape(attn_output,
                                    (batch_size, seq_length, -1, self.dk))  # (batch, seq, neighbors, features)
@@ -130,11 +137,11 @@ def get_ffn(d_model, hidden_size, act_func='relu'):
 
 
 class EncoderLayer(keras.layers.Layer):
-    def __init__(self, dk=256, num_heads=8, hidden_layer_size=256, drop_rate=0.1):
+    def __init__(self, dk=256, num_heads=8, hidden_layer_size=256, drop_rate=0.1, mode=1):
         super(EncoderLayer, self).__init__()
 
         # layers
-        self.MH = MultiHeadAttention(dk, num_heads)
+        self.MH = MultiHeadAttention(dk, num_heads, mode)
         #self.ffn = get_ffn(dk, hidden_layer_size)
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
         #self.normLayer2 = keras.layers.LayerNormalization(epsilon=1e-6)
@@ -161,11 +168,11 @@ class EncoderLayer(keras.layers.Layer):
 
 
 class DecoderLayer(keras.layers.Layer):
-    def __init__(self, dk=256, num_heads=8, hidden_layer=256, drop_rate=0.1):
+    def __init__(self, dk=256, num_heads=8, hidden_layer=256, drop_rate=0.1, mode=1):
         super(DecoderLayer, self).__init__()
         # layers
-        self.SAMH = MultiHeadAttention(dk, num_heads)
-        self.EDMH = MultiHeadAttention(dk, num_heads)
+        self.SAMH = MultiHeadAttention(dk, num_heads, mode)
+        self.EDMH = MultiHeadAttention(dk, num_heads, mode)
         #self.ffn = get_ffn(dk, hidden_layer)
 
         self.normLayer1 = keras.layers.LayerNormalization(epsilon=1e-6)
@@ -197,7 +204,7 @@ class DecoderLayer(keras.layers.Layer):
 
 class Encoder(keras.layers.Layer):
     def __init__(self, features_size, max_size, dk_model=256, num_heads=8, num_encoders=6,
-                 enc_hidden_size=256, use_pos_emb=True, drop_rate=0.1):
+                 enc_hidden_size=256, use_pos_emb=True, drop_rate=0.1, mode=1):
         super(Encoder, self).__init__()
 
         # params
@@ -210,7 +217,7 @@ class Encoder(keras.layers.Layer):
         # layers
         self.positional_encoding = positional_encoding(self.max_size, self.dk_model)
         self.embedding = keras.layers.Dense(dk_model)
-        self.encoders_stack = [EncoderLayer(dk_model, num_heads, enc_hidden_size, drop_rate) for _ in
+        self.encoders_stack = [EncoderLayer(dk_model, num_heads, enc_hidden_size, drop_rate, mode) for _ in
                                range(num_encoders)]
         self.dropout = tf.keras.layers.Dropout(drop_rate)
 
@@ -236,7 +243,7 @@ class Encoder(keras.layers.Layer):
 
 class Decoder(keras.layers.Layer):
     def __init__(self, features_size, max_size, dk_model=256, num_heads=8, num_decoders=6,
-                 dec_hidden_size=256, use_pos_emb=True, drop_rate=0.1):
+                 dec_hidden_size=256, use_pos_emb=True, drop_rate=0.1, mode=1):
 
         super(Decoder, self).__init__()
 
@@ -250,7 +257,7 @@ class Decoder(keras.layers.Layer):
 
         # layers
         self.embedding = keras.layers.Dense(dk_model)
-        self.decoders_stack = [DecoderLayer(dk_model, num_heads, dec_hidden_size, drop_rate) for _ in
+        self.decoders_stack = [DecoderLayer(dk_model, num_heads, dec_hidden_size, drop_rate, mode) for _ in
                                range(num_decoders)]
         self.dropout = tf.keras.layers.Dropout(drop_rate)
 
@@ -333,16 +340,16 @@ class STTransformer(keras.Model):
         self.neigh_size = neigh_size
         self.batch_size = batch
         # layers
-        #self.feat_embedding = keras.layers.Dense(144)
-        #self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7], strides=[2, 2, 2, 2])
+        self.feat_embedding = keras.layers.Dense(144)
+        self.semantic_map = SemanticMapFeatures(4, neigh_size, out_dims=[16, 16, 16, 1], kernel_sizes=[5, 5, 5, 7], strides=[2, 2, 2, 2])
         #self.sampler = Sampler(tm_dk)
 
         # spatial
         self.sp_encoder = Encoder(features_size, neigh_size, sp_dk, num_heads=sp_enc_heads, num_encoders=sp_num_encoders, use_pos_emb=False)
 
         # time
-        self.tm_encoder = Encoder(features_size, seq_size, tm_dk, num_heads=tm_enc_heads, num_encoders=tm_num_encoders, use_pos_emb=True)
-        self.tm_decoder = Decoder(features_size, seq_size, tm_dk, num_heads=tm_dec_heads, num_decoders=tm_num_decoders, use_pos_emb=True)
+        self.tm_encoder = Encoder(features_size, seq_size, tm_dk, num_heads=tm_enc_heads, num_encoders=tm_num_encoders, use_pos_emb=True, mode=2)
+        self.tm_decoder = Decoder(features_size, seq_size, tm_dk, num_heads=tm_dec_heads, num_decoders=tm_num_decoders, use_pos_emb=True, mode=2)
 
         # self.decoder = Decoder(features_size, neigh_size, sp_dk, num_heads=sp_dec_heads, num_decoders=sp_num_decoders, use_pos_emb=False)
         self.linear = tf.keras.layers.Dense(3)
@@ -371,7 +378,7 @@ class STTransformer(keras.Model):
         output = tf.transpose(sp_out, [0, 2, 1, 3])
         # time transformer
         time_input = [past_speed, output]
-        output = self.tm_encoder(time_input, past_speed_masks, training)
+        output, _ = self.tm_encoder(time_input, past_speed_masks, training)
         return output, sp_out, weights
     
     # to switch between wocnn or just the transformer, uncomment the above lines and change past_speed by output in time_input = [...]
@@ -388,7 +395,7 @@ class STTransformer(keras.Model):
         # time transformer
         time_input = [past_speed, output]
         #time_input = [past_speed, past_speed]
-        output = self.tm_encoder(time_input, past_speed_masks, training)
+        output, _ = self.tm_encoder(time_input, past_speed_masks, training)
         #return output, None
         return output, sp_out, weights
 
@@ -464,10 +471,10 @@ class STTransformer(keras.Model):
         tar_sequence = tf.TensorArray(dtype=tf.float32, size=self.seq_size + 1)
         tar_sequence = tar_sequence.write(0, target[:, 0, :, :])
         tar_sequence = tar_sequence.write(1, target[:, 1, :, :])
-
-        enc_out, sp_enc_out, weights = self.encode_abl([*past, maps], training)
+        print('encoding')
+        enc_out, sp_enc_out, weights = self.encode([*past, maps], training)
         past_info = [past_speed_masks, enc_out, sp_enc_out]
-
+        print('past encoding')
         for i in range(2, self.seq_size + 1):
             future_seq = tf.transpose(tar_sequence.stack(), [1, 0, 2, 3])  # transpose to get batch dimension first
             future_speed = (future_seq[:, 1:, :, :] - future_seq[:, :-1, :, :])

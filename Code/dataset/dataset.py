@@ -210,10 +210,10 @@ def buildDataset(inputs, batch_size, pre_path=None, strategy: tf.distribute.Mirr
     dataset = tf.data.Dataset.zip((past_ds, future_ds, bitmaps_ds, target_ds))
     #dataset = tf.data.Dataset.zip((past_ds, future_ds, target_ds))
     # SHUFFLE AND BATCH
-    if shuffle:
+    if shuffle and False:
         dataset = dataset.shuffle(1000)
     drop_remainder = len(past) % batch_size_per_replica == 1
-    dataset = dataset.batch(batch_size, drop_remainder=drop_remainder).prefetch(AUTOTUNE)
+    dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(AUTOTUNE)
     if strategy is not None:
         dataset = strategy.experimental_distribute_dataset(dataset)
 
