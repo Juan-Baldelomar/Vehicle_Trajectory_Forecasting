@@ -312,7 +312,28 @@ class ShiftsAgent(Agent):
         acc = agent_time_step.accel
         rel_rot = agent_time_step.rot - origin_rot
         return x_pos, y_pos, rel_rot, vel, acc
+#--------------------------------------------------------------- NBA CLASS -----------------------------
+class NbaAgentTimestep:
+    def __init__(self, x: float, y):
+        self.x = x
+        self.y = y
+        self.rot = 0
 
+class NbaAgent:
+    def __init__(self, agent_id, team_id, map_name = None):
+        self.ego_id = None       #coche que tiene la camara
+        self.team = team_id      #numero de equipo 
+        self.agent_id = agent_id #numero de jugador
+        self.indexes = []        #Index de las trayectorias peque;as
+        self.map_name = map_name #
+        self.timesteps = {}      #dict of steps in time
+
+    def add_step(self, step_id, step):
+        if self.timesteps.get(step_id) is None:
+            self.timesteps[step_id] = step #valor[0]
+
+    def init_neighbors(self):
+        return {self.agent_id: 1} 
 
 # -------------------------------------------------------------- DATASET CLASS --------------------------------------------------------------
 class Dataset:
