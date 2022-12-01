@@ -52,13 +52,40 @@ def to_cube(file, team = 0):
         c_player = 0
     return A
 
+#le pasamos cuanto tiempo queremos que vea del pasado y cuanto del futuro
+#Separamos en dos bloques del mismo tama;o, y los datos que no tomaremos en cuenta se llenan de 1s
+#es decir los ultimos del bloque con timepo menor
+
+def mask(cube, past_time, future_time):
+    time = max(past_time, future_time)
+    n_players = len(cube[0])
+    s = len(cube[0][0])
+    past = np.zeros((time, n_players, s))
+    future = np.zeros((time, n_players, s))
+
+    #1 indica a la maquina que no lea esos valores
+    if(past_time < future_time):
+        for i in range(future_time-past_time):
+            past[past_time + i] = np.ones(s)
+    if(past_time > future_time):
+        for i in range(past_time-future_time):
+            future[future_time + i] = np.ones(s)
+    return past, future
 
 if __name__ == "__main__":
     import os
     current_directory = os.getcwd()
-    f = open("Code/dataset/NBA_data/ATL_BOS.txt", "r")
+    file = open("Code/dataset/NBA_data/ATL_BOS.txt", "r")
     #d = load_data(f)
-    cube = to_cube(f)
-    print(cube)
+    #for idx in d[0]:
+    #    print(idx, ": ", d[0][idx])
+    cube = to_cube(file)
+    #print(cube)
+    p, f = mask(cube, 11, 11)
+    print("past:")
+    print(p)
+    #print("future")
+    #print(f)
+
     
     
