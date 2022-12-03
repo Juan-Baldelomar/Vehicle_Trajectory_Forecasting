@@ -55,21 +55,28 @@ def to_cube(file, team = 0):
 #le pasamos cuanto tiempo queremos que vea del pasado y cuanto del futuro
 #Separamos en dos bloques del mismo tama;o, y los datos que no tomaremos en cuenta se llenan de 1s
 #es decir los ultimos del bloque con timepo menor
-
-def mask(cube, past_time, future_time):
+def separete_data(cube, past_time, future_time):
     time = max(past_time, future_time)
     n_players = len(cube[0])
     s = len(cube[0][0])
-    past = np.zeros((time, n_players, s))
-    future = np.zeros((time, n_players, s))
+    cube_past = np.zeros((time, n_players, s))
+    cube_future = np.zeros((time, n_players, s))
+    aux = np.split(cube, [past_time, past_time + future_time])
+    cube_future[0:future_time]  = aux[1]
+    cube_past[0:past_time] = aux[0]
 
+    print(np.shape(cube_past))
+    print(np.shape(cube_future))
+
+    return cube_past, cube_future
+
+def mask(past_time, future_time):
+    time = max(past_time, future_time)
+    past = np.ones(time)
+    future = np.ones(time)
     #1 indica a la maquina que no lea esos valores
-    if(past_time < future_time):
-        for i in range(future_time-past_time):
-            past[past_time + i] = np.ones(s)
-    if(past_time > future_time):
-        for i in range(past_time-future_time):
-            future[future_time + i] = np.ones(s)
+    past[0:past_time] = 0
+    future[0:future_time] = 0
     return past, future
 
 if __name__ == "__main__":
@@ -81,11 +88,11 @@ if __name__ == "__main__":
     #    print(idx, ": ", d[0][idx])
     cube = to_cube(file)
     #print(cube)
-    p, f = mask(cube, 11, 11)
+    p, f = mask(10, 22-10)
     print("past:")
     print(p)
-    #print("future")
-    #print(f)
+    print("future")
+    print(f)
 
     
     
